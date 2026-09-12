@@ -1,0 +1,89 @@
+name: Deploy
+
+# Builds the app and publishes it to GitHub Pages at
+# https://elkojo.github.io/xSignature/.
+#
+# Unlike xNotary, whose Pages site is only a redirect stub because its canonical
+# deployment lives elsewhere, this *is* the deployment. There is nothing behind
+# it: the whole app is static files, and everything it does happens in the
+# reader's browser.
+#
+# The tests run first and the deploy is gated on them, so a commit that fails
+# them leaves the published site exactly as it was.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once, but let a queued one finish rather than
+# cancelling it — a half-deployed static site is worse than a slow one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: Build
+        # Served from a project subdirectory, not an apex, so every asset URL
+        # has to carry it. Without this the page loads and then fetches its
+        # script from the wrong path and shows nothing.
+        run: npx vite build
+        env:
+          BASE_PATH: /xSignature/
+
+      - name: Check the build is the one Pages needs
+        # Two silent failures, both visible only after deploying: assets built
+        # for the wrong base, and fonts that did not make it into dist.
+        run: |
+          grep -q '/xSignature/assets/' dist/index.html \
+            || { echo '::error::dist/index.html does not reference /xSignature/assets/ — was BASE_PATH set?'; exit 1; }
+          test "$(ls dist/assets/*.ttf 2>/dev/null | wc -l)" -eq 7 \
+            || { echo '::error::expected seven bundled fonts in dist/assets'; exit 1; }
+
+      - name: Stage the site
+        # 404.html is a copy of index.html so that any path under /xSignature/
+        # still loads the app rather than GitHub's error page. .nojekyll stops
+        # Pages running the output through Jekyll, which would drop files whose
+        # names begin with an underscore.
+        run: |
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

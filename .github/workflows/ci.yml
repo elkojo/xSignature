@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Pinned to 18 to match the floor declared in app/package.json.
+          node-version: '18'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        # The whole suite is offline by design: this app makes no network
+        # requests at all, so there is nothing to hold back from CI.
+        run: npm test
+
+      - name: Build
+        run: npx vite build
+
+      - name: Check no third-party host crept into the build
+        # Cheap guard on the promise the interface makes. Fonts are bundled and
+        # served from this origin; a CDN reference would break that silently and
+        # only for the user, who would never know what was requested on their
+        # behalf.
+        run: |
+          if grep -rE 'https?://(fonts\.googleapis|fonts\.gstatic|cdn\.|unpkg|jsdelivr)' dist --include='*.js' --include='*.css' --include='*.html'; then
+            echo '::error::the build references a third-party host'
+            exit 1
+          fi
+
+      - name: Check every bundled font ships its licence
+        # The OFL requires the licence to travel with the font. It is committed
+        # beside each .ttf; this catches a face added without one.
+        run: |
+          for ttf in src/lib/signature/fonts/*.ttf; do
+            licence="${ttf%.ttf}.OFL.txt"
+            test -f "$licence" || { echo "::error::$ttf has no licence beside it"; exit 1; }
+          done

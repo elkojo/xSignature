@@ -6,3 +6,8 @@ dist/
 coverage/
 type-dump.svg
 draw-dump.svg
+
+# Working instructions for this project, kept out of the published repository.
+# They are notes to whoever (or whatever) is building it, not documentation for
+# anyone reading the source. What a contributor needs is in README.md.
+CLAUDE.md

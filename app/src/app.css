@@ -1,0 +1,1699 @@
+/*
+ * xNotary design system.
+ *
+ * Two surfaces, deliberately different:
+ *
+ *   - The landing view is dark (--bg) with a lime accent. It is the face of the
+ *     product and the only page a visitor sees before deciding to trust it.
+ *   - Every working screen is "paper" (--paper) with white cards. Documents are
+ *     what this app is about, and a document is a light thing.
+ *
+ * The appearance is fixed rather than following prefers-color-scheme: the two
+ * surfaces carry meaning here (you are reading about it / you are working on a
+ * document), and inverting one of them breaks that.
+ */
+
+:root {
+  /* Dark surface — landing, top bar, footer */
+  --bg: #07130f;
+  --bg-soft: #0b1b16;
+  --white: #f8faf6;
+  --line: rgba(222, 234, 226, 0.14);
+  --lime: #baff73;
+  --mint: #59e6bd;
+  --green: #173f32;
+
+  /* Paper surface — every product screen */
+  --paper: #f4f3ed;
+  --ink: #10201a;
+  --ink-soft: #5e6a65;
+  --line-dark: rgba(16, 32, 26, 0.13);
+
+  /* Semantic tones, on paper */
+  --ok: #236048;
+  --ok-bg: #edf7f2;
+  --ok-line: #bcdcca;
+  --warn: #815f22;
+  --warn-bg: #f9f2e2;
+  --warn-line: #e6d6b4;
+  --bad: #a8392f;
+  --bad-bg: #fff1ef;
+  --bad-line: #e9c5c0;
+
+  --radius: 16px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--white);
+  background: var(--bg);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+button {
+  color: inherit;
+}
+a {
+  color: inherit;
+}
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- top bar -- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid var(--line);
+  background: rgba(7, 19, 15, 0.94);
+  backdrop-filter: blur(18px);
+}
+
+.nav {
+  /* Also the positioning context the maturity notice falls back to once the
+     bar wraps and the control is no longer near the right edge. */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: min(1280px, calc(100% - 40px));
+  min-height: 72px;
+  margin: 0 auto;
+  padding: 10px 0;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 780;
+  letter-spacing: -0.035em;
+}
+
+.brand-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(186, 255, 115, 0.55);
+  border-radius: 8px;
+  color: var(--lime);
+  background: rgba(186, 255, 115, 0.05);
+  font-size: 13px;
+  font-weight: 850;
+  transform: rotate(45deg);
+}
+
+.brand-mark span {
+  transform: rotate(-45deg);
+}
+
+.brand-domain {
+  color: #9aaba3;
+  font-weight: 500;
+}
+
+.main-nav {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.nav-link {
+  height: 38px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 9px;
+  color: #acbab3;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease;
+}
+
+.nav-link:hover {
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.nav-link[aria-current='page'] {
+  color: var(--lime);
+  background: rgba(186, 255, 115, 0.075);
+}
+
+/*
+ * Maturity of the software, and the control that reveals what it means.
+ *
+ * The notice is not displayed — it is one hover, focus or tap away, so it does
+ * not compete with the page but is never more than a gesture from anyone who
+ * wants it. Both label and notice come out together at M3.
+ */
+.stage-wrap {
+  position: relative;
+}
+
+.stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #b7c2bc;
+  cursor: help;
+  font-size: 12px;
+  font-weight: 640;
+  white-space: nowrap;
+  transition: color 0.16s ease;
+}
+
+.stage:hover,
+.stage[aria-expanded='true'] {
+  color: var(--white);
+}
+
+.stage::before {
+  width: 7px;
+  height: 7px;
+  content: '';
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 5px rgba(186, 255, 115, 0.08);
+}
+
+.stage-note {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 12px);
+  z-index: 40;
+  width: min(390px, calc(100vw - 40px));
+  padding: 14px 16px;
+  border: 1px solid var(--warn-line);
+  border-radius: 12px;
+  color: #6f5324;
+  background: var(--warn-bg);
+  box-shadow: 0 16px 44px rgba(4, 12, 9, 0.4);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.6;
+  text-align: left;
+  white-space: normal;
+}
+
+.stage-note strong {
+  color: #573f13;
+}
+
+/* --------------------------------------------------------- banner strips -- */
+
+/*
+ * Sits between the dark top bar and either surface, so it is styled to work
+ * against both rather than inheriting from whichever view is showing.
+ */
+.band {
+  border-bottom: 1px solid var(--warn-line);
+  color: var(--warn);
+  background: var(--warn-bg);
+  font-size: 13px;
+}
+
+.band > div {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 11px 0;
+}
+
+.band strong {
+  color: #6b4a12;
+}
+
+/* ---------------------------------------------------------------- buttons -- */
+
+.button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 19px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 740;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.button.primary {
+  color: #0d1a14;
+  background: var(--lime);
+}
+.button.primary:hover:not(:disabled) {
+  background: #c9ff91;
+}
+
+.button.secondary {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.035);
+}
+.button.secondary:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.26);
+}
+
+/* The primary action on paper. */
+.button.dark {
+  color: #fff;
+  background: var(--green);
+}
+.button.dark:hover:not(:disabled) {
+  background: #205441;
+}
+
+.button.ghost-dark {
+  color: var(--ink);
+  border-color: var(--line-dark);
+  background: transparent;
+}
+.button.ghost-dark:hover:not(:disabled) {
+  border-color: #6f9183;
+}
+
+.button.danger {
+  color: var(--bad);
+  border-color: var(--bad-line);
+  background: transparent;
+}
+.button.danger:hover:not(:disabled) {
+  background: var(--bad-bg);
+}
+
+.button.small {
+  min-height: 36px;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  color: #286c51;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------- landing -- */
+
+.home {
+  padding: 88px 0 72px;
+  background:
+    radial-gradient(circle at 50% 8%, rgba(89, 230, 189, 0.1), transparent 34rem),
+    var(--bg);
+}
+
+.home-wrap {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+}
+
+.hero {
+  max-width: 790px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.eyebrow {
+  margin-bottom: 20px;
+  color: var(--lime);
+  font-size: 11px;
+  font-weight: 780;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin-bottom: 23px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(38px, 7vw, 68px);
+  font-weight: 500;
+  line-height: 1.02;
+  letter-spacing: -0.052em;
+}
+
+.hero > p {
+  max-width: 650px;
+  margin: 0 auto;
+  color: #bac6c0;
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+.hero-actions {
+  display: flex;
+  justify-content: center;
+  gap: 11px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+}
+
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 72px;
+}
+
+.service-card {
+  position: relative;
+  min-height: 205px;
+  padding: 26px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: inherit;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.service-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(186, 255, 115, 0.32);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.service-number {
+  color: #789087;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.service-card h2 {
+  margin: 37px 0 8px;
+  font-size: 21px;
+  letter-spacing: -0.025em;
+}
+
+.service-card p {
+  margin-bottom: 0;
+  color: #9eaea6;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.service-arrow {
+  position: absolute;
+  right: 23px;
+  top: 23px;
+  color: var(--lime);
+  font-size: 18px;
+}
+
+.trust-row {
+  display: flex;
+  justify-content: center;
+  gap: 34px;
+  margin-top: 42px;
+  color: #84978e;
+  font-size: 11px;
+  font-weight: 690;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-wrap: wrap;
+}
+
+.trust-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trust-row span::before {
+  width: 5px;
+  height: 5px;
+  content: '';
+  border-radius: 50%;
+  background: var(--mint);
+}
+
+.future-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+  margin-top: 72px;
+  padding: 24px 28px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: #c4cec9;
+  flex-wrap: wrap;
+}
+
+.future-note strong {
+  color: var(--white);
+}
+.future-note p {
+  flex: 1 1 420px;
+  margin: 0;
+  font-size: 13px;
+}
+.future-note > span {
+  color: var(--lime);
+  font-size: 12px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- product surface -- */
+
+.product-view {
+  min-height: 62vh;
+  color: var(--ink);
+  background: var(--paper);
+  color-scheme: light;
+}
+
+.workspace {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 54px 0 76px;
+}
+
+.page-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 40px;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+}
+
+.page-head h1 {
+  margin: 0 0 9px;
+  font-size: clamp(26px, 4vw, 34px);
+  font-weight: 760;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+.page-head p {
+  max-width: 600px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.secure-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #477061;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.secure-note::before {
+  content: '●';
+  color: #2d9f72;
+  font-size: 9px;
+}
+
+.flow-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+.flow-main,
+.side-card,
+.single-card,
+.list-card {
+  border: 1px solid var(--line-dark);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(25, 42, 35, 0.055);
+}
+
+.flow-main {
+  min-height: 510px;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- stepper -- */
+
+.stepper {
+  display: flex;
+  gap: 0;
+  padding: 0 30px;
+  border-bottom: 1px solid var(--line-dark);
+}
+
+.step {
+  position: relative;
+  flex: 1;
+  padding: 19px 0 17px;
+  border: 0;
+  color: #8a9490;
+  background: transparent;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 730;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.step:disabled {
+  cursor: default;
+}
+.step.active {
+  color: var(--ink);
+}
+.step.done {
+  color: #32805f;
+}
+
+.step.active::after {
+  position: absolute;
+  right: 12px;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  content: '';
+  background: var(--green);
+}
+
+.flow-panel {
+  padding: 42px;
+  animation: enter 0.18s ease both;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.panel-title {
+  margin-bottom: 8px;
+  font-size: clamp(20px, 3vw, 25px);
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+.panel-copy {
+  max-width: 590px;
+  margin-bottom: 27px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.flow-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 27px;
+  flex-wrap: wrap;
+}
+
+.flow-actions.end {
+  justify-content: flex-end;
+}
+
+/* -------------------------------------------------------------- dropzones -- */
+
+.dropzone {
+  display: grid;
+  min-height: 225px;
+  place-items: center;
+  padding: 32px;
+  border: 1.5px dashed #aab7b1;
+  border-radius: 13px;
+  background: #fafaf7;
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.dropzone.over {
+  border-color: #3d7a63;
+  background: #f1f6f3;
+}
+
+.dropzone input[type='file'] {
+  display: none;
+}
+
+/* The two-up variant on Verify and the second drop on Attest. */
+.dropzone.compact {
+  min-height: 0;
+  padding: 25px;
+  border-width: 1px;
+}
+
+.file-icon {
+  display: grid;
+  width: 48px;
+  height: 54px;
+  margin: 0 auto 17px;
+  place-items: center;
+  border: 1px solid #99aca3;
+  border-radius: 7px;
+  color: var(--green);
+  background: #fff;
+  font-size: 20px;
+  font-weight: 800;
+  box-shadow: 6px 6px 0 #e3e9e5;
+}
+
+.dropzone.compact .file-icon {
+  width: 34px;
+  height: 39px;
+  margin-bottom: 9px;
+  font-size: 15px;
+  box-shadow: 4px 4px 0 #e3e9e5;
+}
+
+.dropzone strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 17px;
+}
+
+.dropzone.compact strong {
+  font-size: 14px;
+}
+
+.dropzone p,
+.dropzone .meta {
+  margin: 0 0 4px;
+  color: #75817c;
+  font-size: 12px;
+}
+
+.privacy {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 17px;
+  color: #65746e;
+  font-size: 12px;
+}
+
+.privacy::before {
+  content: '✓';
+  color: #207957;
+  font-weight: 850;
+}
+
+.verify-uploader {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* ------------------------------------------------------------ detail rows -- */
+
+.review-box {
+  border: 1px solid var(--line-dark);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.review-row {
+  display: grid;
+  grid-template-columns: 155px minmax(0, 1fr);
+  gap: 20px;
+  padding: 17px 19px;
+  border-bottom: 1px solid var(--line-dark);
+}
+
+.review-row:last-child {
+  border-bottom: 0;
+}
+
+.review-row > span:first-child {
+  color: #7a8580;
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/*
+ * The label column is small caps, which is fine for a label and wrong for a
+ * value. Where the left column carries a file name, it keeps its own case:
+ * file names are case-sensitive, and one shown in capitals is one a reader
+ * cannot copy.
+ */
+.review-row > span.plain:first-child {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
+.review-row strong,
+.review-row > div {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.review-row .mono {
+  font-size: 11px;
+  font-weight: 560;
+}
+
+/* ----------------------------------------------------------------- fields -- */
+
+.field {
+  margin-top: 18px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.input {
+  width: 100%;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid #c7cfcb;
+  border-radius: 9px;
+  outline: none;
+  color: var(--ink);
+  background: #fff;
+}
+
+.input:focus {
+  border-color: #537e6d;
+  box-shadow: 0 0 0 3px rgba(57, 129, 99, 0.09);
+}
+
+.field-help {
+  margin: 6px 0 0;
+  color: #7c8782;
+  font-size: 11px;
+}
+
+/* ---------------------------------------------------------------- success -- */
+
+.success {
+  padding: 10px 0 0;
+  text-align: center;
+}
+
+.success-mark {
+  display: grid;
+  width: 70px;
+  height: 70px;
+  margin: 0 auto 21px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #237658;
+  font-size: 30px;
+  box-shadow: 0 0 0 10px #e5f1ec;
+}
+
+.success h2 {
+  margin-bottom: 8px;
+  font-size: clamp(22px, 3.5vw, 27px);
+  letter-spacing: -0.035em;
+}
+
+.success > p {
+  max-width: 520px;
+  margin: 0 auto 25px;
+  color: var(--ink-soft);
+}
+
+.certificate-mini {
+  max-width: 530px;
+  margin: 0 auto;
+  border: 1px solid var(--line-dark);
+  border-radius: 12px;
+  background: #fafaf7;
+  text-align: left;
+}
+
+.certificate-mini .review-row {
+  grid-template-columns: 130px minmax(0, 1fr);
+}
+
+.success-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 26px;
+  flex-wrap: wrap;
+}
+
+.keep-note {
+  margin-top: 15px;
+  color: #7a8580;
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------- side panel -- */
+
+.side-card {
+  padding: 24px;
+}
+
+.side-card h3 {
+  margin-bottom: 11px;
+  font-size: 14px;
+  letter-spacing: -0.015em;
+}
+
+.side-card p {
+  margin-bottom: 17px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.side-card p:last-child {
+  margin-bottom: 0;
+}
+
+.side-list {
+  display: grid;
+  gap: 13px;
+  padding-top: 17px;
+  border-top: 1px solid var(--line-dark);
+}
+
+.side-list div {
+  display: flex;
+  align-items: start;
+  gap: 9px;
+  color: #56655e;
+  font-size: 11px;
+}
+
+.side-list div::before {
+  content: '✓';
+  color: #25815e;
+  font-weight: 900;
+}
+
+/* ------------------------------------------------------------------ pills -- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pill.good {
+  color: var(--ok);
+  background: #dff0e8;
+}
+.pill.waiting {
+  color: var(--warn);
+  background: #f7edd5;
+}
+.pill.bad {
+  color: var(--bad);
+  background: #fbe3e0;
+}
+.pill.muted {
+  color: #5c6a64;
+  background: #e8ebe7;
+}
+
+/* --------------------------------------------------------------- notices -- */
+
+.notice {
+  padding: 14px 16px;
+  border: 1px solid var(--line-dark);
+  border-radius: 12px;
+  background: #fafaf7;
+  color: #47554e;
+  font-size: 12.5px;
+  line-height: 1.6;
+  margin-top: 16px;
+}
+
+.notice strong {
+  color: var(--ink);
+}
+
+.notice.ok {
+  border-color: var(--ok-line);
+  color: #2b5b48;
+  background: var(--ok-bg);
+}
+.notice.ok strong {
+  color: #1c4736;
+}
+
+.notice.warn {
+  border-color: var(--warn-line);
+  color: #6f5324;
+  background: var(--warn-bg);
+}
+.notice.warn strong {
+  color: #573f13;
+}
+
+.notice.bad {
+  border-color: var(--bad-line);
+  color: #8f3229;
+  background: var(--bad-bg);
+}
+.notice.bad strong {
+  color: #6f241d;
+}
+
+.notice ul,
+.notice ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+/* --------------------------------------------------------- result banner -- */
+
+.result-banner {
+  display: flex;
+  align-items: start;
+  gap: 15px;
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.result-banner.good {
+  border: 1px solid var(--ok-line);
+  background: var(--ok-bg);
+}
+.result-banner.bad {
+  border: 1px solid var(--bad-line);
+  background: var(--bad-bg);
+}
+.result-banner.waiting {
+  border: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+}
+
+.result-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 900;
+}
+
+.good .result-icon {
+  background: #267a5a;
+}
+.bad .result-icon {
+  background: #b95148;
+}
+.waiting .result-icon {
+  background: #b08333;
+}
+
+.result-banner h3 {
+  margin-bottom: 4px;
+  font-size: 16px;
+}
+
+.result-banner p {
+  margin: 0;
+  color: #607068;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.result-banner p + p {
+  margin-top: 8px;
+}
+
+/* ------------------------------------------------------------ consent list -- */
+
+.signers {
+  display: grid;
+  gap: 10px;
+}
+
+.signer {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border: 1px solid var(--line-dark);
+  border-radius: 12px;
+  background: #fafaf7;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.signer:hover {
+  border-color: #9fb2a9;
+}
+
+.signer.on {
+  border-color: #3d7a63;
+  background: #f1f7f4;
+}
+
+.signer input[type='checkbox'] {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--green);
+}
+
+.signer .who {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.signer .who strong {
+  font-size: 14px;
+}
+
+.meta {
+  color: #7a8680;
+  font-size: 11.5px;
+}
+
+.meta.warn-text {
+  color: #8a6318;
+  font-weight: 640;
+}
+.meta.bad-text {
+  color: var(--bad);
+  font-weight: 640;
+}
+
+/* -------------------------------------------------------------- list view -- */
+
+.list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line-dark);
+  flex-wrap: wrap;
+}
+
+.search {
+  width: min(330px, 100%);
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #cbd2ce;
+  border-radius: 8px;
+  outline: none;
+  color: var(--ink);
+  background: #fafaf8;
+}
+
+.search:focus {
+  border-color: #537e6d;
+}
+
+.list-card {
+  overflow: hidden;
+}
+
+.table-head,
+.table-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 135px 120px 115px 50px;
+  gap: 16px;
+  align-items: center;
+}
+
+.table-head {
+  padding: 12px 22px;
+  color: #7b8781;
+  background: #f7f7f3;
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.table-row {
+  padding: 18px 22px;
+  border-top: 1px solid var(--line-dark);
+}
+
+.doc-name {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 740;
+}
+
+.doc-hash {
+  color: #84908a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.table-value {
+  color: #52615a;
+  font-size: 12px;
+}
+
+.more {
+  justify-self: end;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #65736d;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.more:hover {
+  background: #f0f2ef;
+}
+
+.row-detail {
+  padding: 0 22px 20px;
+  border-top: 0;
+}
+
+.storage-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 15px;
+  color: #65736d;
+  font-size: 11px;
+}
+
+.storage-note::before {
+  content: '○';
+  color: #2d7b5d;
+  font-size: 19px;
+}
+
+.empty {
+  padding: 56px 22px;
+  color: #7a8580;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------ how it works -- */
+
+.single-card {
+  padding: 34px;
+  margin-bottom: 18px;
+}
+
+.section-title {
+  margin-bottom: 6px;
+  font-size: clamp(18px, 3vw, 21px);
+  letter-spacing: -0.03em;
+}
+
+.section-copy {
+  margin-bottom: 24px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.how-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.how-step {
+  padding: 24px;
+  border: 1px solid var(--line-dark);
+  border-radius: 12px;
+  background: #fafaf7;
+}
+
+.how-number {
+  display: block;
+  margin-bottom: 30px;
+  color: #2e7258;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.how-step h3 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.how-step p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.boundary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.boundary {
+  padding: 23px;
+  border-radius: 12px;
+}
+
+.boundary.yes {
+  border: 1px solid #c8ddcf;
+  background: #edf6f1;
+}
+.boundary.no {
+  border: 1px solid #ded6ca;
+  background: #f7f2ea;
+}
+
+.boundary h3 {
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.boundary ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #58665f;
+  font-size: 12px;
+}
+
+.boundary li::before {
+  margin-right: 8px;
+  font-weight: 900;
+}
+
+.boundary.yes li::before {
+  content: '✓';
+  color: #267756;
+}
+.boundary.no li::before {
+  content: '—';
+  color: #a1722f;
+}
+
+.vision-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+  margin-top: 18px;
+  padding: 22px 24px;
+  border-radius: 12px;
+  color: #dfe8e3;
+  background: var(--bg-soft);
+  flex-wrap: wrap;
+}
+
+.vision-strip > div {
+  flex: 1 1 420px;
+}
+
+.vision-strip strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.vision-strip p {
+  margin: 0;
+  color: #9fb0a7;
+  font-size: 11px;
+}
+
+.vision-strip > span {
+  color: var(--lime);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+/* Reference links inside the paper surface. */
+.product-view a {
+  color: #1f6b50;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.product-view a:hover {
+  color: #14503b;
+}
+
+/* --------------------------------------------------------------- details -- */
+
+/*
+ * An explainer that is present without being in the way. The screens it lives
+ * on had ~150 words of prose above the fold explaining choices most users do
+ * not have to make; the words are unchanged, they are just one click away.
+ */
+details.explain {
+  margin-top: 12px;
+  border: 1px solid var(--line-dark);
+  border-radius: 12px;
+  background: #fafaf7;
+}
+
+details.explain > summary {
+  padding: 13px 16px;
+  color: #2b5b48;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+details.explain > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.explain > summary::before {
+  display: inline-block;
+  width: 14px;
+  content: '▸';
+}
+
+details.explain[open] > summary::before {
+  content: '▾';
+}
+
+details.explain > div {
+  padding: 0 16px 15px;
+  color: #47554e;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* A list of foldable examples: these summaries are headings, not asides. */
+.case-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.case-list details.explain {
+  margin-top: 0;
+}
+
+.case-list details.explain > summary {
+  padding: 15px 16px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 740;
+}
+
+.case-list details.explain[open] > summary {
+  padding-bottom: 9px;
+}
+
+.case-list details.explain > div {
+  padding-bottom: 17px;
+  font-size: 13px;
+}
+
+details.raw {
+  margin-top: 16px;
+}
+
+details.raw summary {
+  color: #65736d;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+details.raw pre {
+  max-height: 320px;
+  margin-top: 10px;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  background: #fafaf7;
+  font-size: 11px;
+}
+
+/* -------------------------------------------------------------- progress -- */
+
+.progress {
+  height: 5px;
+  margin-top: 14px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6eae7;
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--green);
+  transition: width 0.15s linear;
+}
+
+.spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -0.1em;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ----------------------------------------------------------------- footer -- */
+
+footer.site {
+  border-top: 1px solid var(--line);
+  color: #8d9c95;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+footer.site > div {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+
+footer.site a {
+  color: #b6c5be;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ------------------------------------------------------------- responsive -- */
+
+@media (max-width: 980px) {
+  .flow-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .service-grid,
+  .how-grid {
+    grid-template-columns: 1fr;
+  }
+  .boundary-grid {
+    grid-template-columns: 1fr;
+  }
+  .table-head {
+    display: none;
+  }
+  .table-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+  }
+  .table-row .table-value {
+    grid-column: 1;
+  }
+  .table-row .pill {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .table-row .more {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .home {
+    padding: 56px 0 48px;
+  }
+  .workspace {
+    padding: 32px 0 56px;
+  }
+  .flow-panel {
+    padding: 26px 20px;
+  }
+  .single-card {
+    padding: 24px 20px;
+  }
+  .verify-uploader {
+    grid-template-columns: 1fr;
+  }
+  .review-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .certificate-mini .review-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stepper {
+    padding: 0 16px;
+  }
+  .step {
+    font-size: 10px;
+  }
+  .nav {
+    gap: 12px;
+  }
+  .main-nav {
+    order: 3;
+    flex: 1 0 100%;
+    justify-content: flex-start;
+  }
+  /*
+   * Once the bar wraps, the control sits near the left edge, so a panel
+   * anchored to it hangs off the screen either way. Dropping the wrapper's
+   * positioning re-anchors the panel to `.nav` and it spans the bar instead.
+   */
+  .stage-wrap {
+    position: static;
+  }
+  .stage-note {
+    right: 12px;
+    left: 12px;
+    top: calc(100% + 8px);
+    width: auto;
+  }
+  .flow-actions .button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .spinner {
+    animation-duration: 2s !important;
+  }
+}

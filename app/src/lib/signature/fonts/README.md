@@ -13,3 +13,51 @@ npm package named below; nothing is subset or re-encoded.
 - Source package: `@expo-google-fonts/dancing-script@0.4.2`
 - Upstream version: v29
 - Subsets: latin, latin-ext, vietnamese
+
+## Great Vibes
+
+- File: `GreatVibes-Regular.ttf`
+- Licence: `GreatVibes-Regular.OFL.txt` (OFL-1.1)
+- Source package: `@expo-google-fonts/great-vibes@0.4.1`
+- Upstream version: v21
+- Subsets: cyrillic, cyrillic-ext, greek-ext, latin, latin-ext, vietnamese
+
+## Sacramento
+
+- File: `Sacramento-Regular.ttf`
+- Licence: `Sacramento-Regular.OFL.txt` (OFL-1.1)
+- Source package: `@expo-google-fonts/sacramento@0.4.1`
+- Upstream version: v17
+- Subsets: latin, latin-ext
+
+## Caveat
+
+- File: `Caveat-Regular.ttf`
+- Licence: `Caveat-Regular.OFL.txt` (OFL-1.1)
+- Source package: `@expo-google-fonts/caveat@0.4.2`
+- Upstream version: v23
+- Subsets: cyrillic, cyrillic-ext, latin, latin-ext
+
+## Allura
+
+- File: `Allura-Regular.ttf`
+- Licence: `Allura-Regular.OFL.txt` (OFL-1.1)
+- Source package: `@expo-google-fonts/allura@0.4.2`
+- Upstream version: v23
+- Subsets: latin, latin-ext, vietnamese
+
+## Parisienne
+
+- File: `Parisienne-Regular.ttf`
+- Licence: `Parisienne-Regular.OFL.txt` (OFL-1.1)
+- Source package: `@expo-google-fonts/parisienne@0.4.1`
+- Upstream version: v14
+- Subsets: latin, latin-ext
+
+## Mr De Haviland
+
+- File: `MrDeHaviland-Regular.ttf`
+- Licence: `MrDeHaviland-Regular.OFL.txt` (OFL-1.1)
+- Source package: `@expo-google-fonts/mr-de-haviland@0.4.1`
+- Upstream version: v15
+- Subsets: latin, latin-ext

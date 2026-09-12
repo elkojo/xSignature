@@ -21,14 +21,19 @@ const MODULES = fileURLToPath(new URL('../node_modules/', import.meta.url));
 
 /** Every bundled face, with where its `.ttf` and its licence come from. */
 const FACES = [
-  {
-    id: 'dancing-script',
-    name: 'Dancing Script',
-    pkg: '@expo-google-fonts/dancing-script',
-    ttf: '400Regular/DancingScript_400Regular.ttf',
-    file: 'DancingScript-Regular.ttf',
-  },
-];
+  { id: 'dancing-script', name: 'Dancing Script', slug: 'DancingScript' },
+  { id: 'great-vibes', name: 'Great Vibes', slug: 'GreatVibes' },
+  { id: 'sacramento', name: 'Sacramento', slug: 'Sacramento' },
+  { id: 'caveat', name: 'Caveat', slug: 'Caveat' },
+  { id: 'allura', name: 'Allura', slug: 'Allura' },
+  { id: 'parisienne', name: 'Parisienne', slug: 'Parisienne' },
+  { id: 'mr-de-haviland', name: 'Mr De Haviland', slug: 'MrDeHaviland' },
+].map((f) => ({
+  ...f,
+  pkg: `@expo-google-fonts/${f.id}`,
+  ttf: `400Regular/${f.slug}_400Regular.ttf`,
+  file: `${f.slug}-Regular.ttf`,
+}));
 
 mkdirSync(OUT, { recursive: true });
 

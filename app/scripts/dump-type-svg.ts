@@ -19,12 +19,12 @@ import { boundsHeight, boundsWidth, pathBounds } from '../src/lib/signature/expo
 import { toSvg } from '../src/lib/signature/export/svg';
 import { textToPath } from '../src/lib/signature/type/text-to-path';
 
-const text = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? 'Ada Lovelace';
+const args = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const text = args[0] ?? 'Ada Lovelace';
+const fontFile = args[1] ?? 'DancingScript-Regular.ttf';
 const fontSize = 120;
 
-const ttf = fileURLToPath(
-  new URL('../src/lib/signature/fonts/DancingScript-Regular.ttf', import.meta.url),
-);
+const ttf = fileURLToPath(new URL(`../src/lib/signature/fonts/${fontFile}`, import.meta.url));
 const font = parse(readFileSync(ttf).buffer);
 
 const commands = textToPath(font, text, { fontSize });

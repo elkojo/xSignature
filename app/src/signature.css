@@ -74,3 +74,193 @@
     padding: 14px;
   }
 }
+
+/*
+ * A dark backdrop for the preview.
+ *
+ * Not a theme and not a setting that reaches the file — the export is
+ * unchanged either way. It exists because white ink on a white checkerboard
+ * shows nothing, and an ink swatch that appears to do nothing is worse than no
+ * swatch at all.
+ */
+.ink-stage.dark {
+  border-color: rgba(222, 234, 226, 0.18);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(45deg, #12241d 25%, transparent 25%),
+    linear-gradient(-45deg, #12241d 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #12241d 75%),
+    linear-gradient(-45deg, transparent 75%, #12241d 75%);
+}
+
+.ink-stage.dark .empty-ink {
+  color: #8fa39b;
+}
+
+.stage-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.stage-hint {
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+.stage-toggle {
+  padding: 5px 11px;
+  border: 1px solid var(--line-dark);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 650;
+  background: #fff;
+  cursor: pointer;
+}
+
+.stage-toggle:hover {
+  border-color: #a8b4ae;
+  color: var(--ink);
+}
+
+/* A label for a group of buttons, where .field label would be wrong: these
+   controls are not one input, so there is nothing for a label to point at. */
+.field-label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.face-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 8px;
+}
+
+.face-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  text-align: left;
+  background: #fff;
+  cursor: pointer;
+}
+
+.face-option strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.face-option span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.face-option:hover {
+  border-color: #a8b4ae;
+}
+
+.face-option.selected {
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice {
+  padding: 9px 16px;
+  border: 1px solid var(--line-dark);
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 650;
+  background: #fff;
+  cursor: pointer;
+}
+
+.choice:hover {
+  border-color: #a8b4ae;
+}
+
+.choice.selected {
+  border-color: var(--green);
+  color: var(--white);
+  background: var(--green);
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+/*
+ * The swatch is the colour. The ring that marks the selected one sits outside
+ * it rather than on top, so it reads the same on white ink as on black.
+ */
+.swatch {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line-dark);
+  border-radius: 9px;
+  background: var(--swatch);
+  cursor: pointer;
+}
+
+.swatch:hover {
+  transform: translateY(-1px);
+}
+
+.swatch.selected {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.hex-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.hex-row label {
+  flex: none;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+.hex-input {
+  width: 130px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.hex-input.bad {
+  border-color: var(--bad-line);
+  background: var(--bad-bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swatch:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .face-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .hex-row {
+    flex-wrap: wrap;
+  }
+}

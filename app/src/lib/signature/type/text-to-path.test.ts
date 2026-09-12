@@ -11,9 +11,10 @@ import { textToPath } from './text-to-path';
  * bytes are the same bytes and the parse is the same parse — and a test that
  * needs no server stays offline and deterministic, which is the house rule.
  */
-const font = parse(
-  readFileSync(fileURLToPath(new URL('../fonts/DancingScript-Regular.ttf', import.meta.url))).buffer,
-);
+const load = (file: string) =>
+  parse(readFileSync(fileURLToPath(new URL(`../fonts/${file}`, import.meta.url))).buffer);
+
+const font = load('DancingScript-Regular.ttf');
 
 describe('textToPath', () => {
   it('produces nothing for empty text', () => {
@@ -100,5 +101,56 @@ describe('textToPath', () => {
       x = c.x;
       y = c.y;
     }
+  });
+});
+
+describe('fonts the library cannot shape', () => {
+  const greatVibes = load('GreatVibes-Regular.ttf');
+
+  it('confirms the library still throws on this font', () => {
+    // The reason the fallback exists, pinned so we find out if it is ever
+    // fixed upstream and the fallback can go.
+    expect(() => greatVibes.getPath('Ada Lovelace', 0, 0, 100)).toThrow(
+      /lookupType: 6 - substFormat: 2 is not yet supported/,
+    );
+  });
+
+  it('lays the text out anyway', () => {
+    const commands = textToPath(greatVibes, 'Ada Lovelace', { fontSize: 100 });
+    expect(commands.length).toBeGreaterThan(100);
+    expect(commands[0]?.type).toBe('M');
+  });
+
+  it('never throws, whatever the face and whatever the text', () => {
+    // textToPath is called from a reactive expression. An exception there does
+    // not surface as an error message — it stops the interface updating, which
+    // is how this was found: a frozen preview and a console nobody was reading.
+    const faces = [
+      'DancingScript-Regular.ttf',
+      'Caveat-Regular.ttf',
+      'GreatVibes-Regular.ttf',
+      'Allura-Regular.ttf',
+      'Parisienne-Regular.ttf',
+      'Sacramento-Regular.ttf',
+      'MrDeHaviland-Regular.ttf',
+    ];
+    const samples = ['Ada Lovelace', 'Jiří Novák', '日本語', '😀', "O'Brien-Smith", 'ffi', '   '];
+
+    for (const file of faces) {
+      const face = load(file);
+      for (const text of samples) {
+        expect(() => textToPath(face, text, { fontSize: 120 })).not.toThrow();
+      }
+    }
+  });
+
+  it('advances the pen, rather than stacking every glyph at the origin', () => {
+    // The fallback places glyphs itself. Getting the advance wrong would pile
+    // the whole name into one blot, which still "works" and is still useless.
+    const one = textToPath(greatVibes, 'A', { fontSize: 100 });
+    const many = textToPath(greatVibes, 'AAAA', { fontSize: 100 });
+
+    const rightmost = (cs: typeof one) => Math.max(...cs.flatMap((c) => ('x' in c ? [c.x] : [])));
+    expect(rightmost(many)).toBeGreaterThan(rightmost(one) * 2);
   });
 });

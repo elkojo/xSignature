@@ -1,43 +1,59 @@
 <script lang="ts">
   /**
-   * "Signature image" — type a name, look at it, take the file.
+   * "Signature image" — type a name, style it, take the file.
    *
    * The app is self-contained: it talks to no server and to no other app. What
    * it produces is an image file and nothing more; the notice below says so,
    * and that notice is not decoration — it is the one honest thing on a screen
    * that could otherwise be mistaken for something with legal weight.
    *
-   * No geometry happens in this file. It reads a name, asks lib/signature for
-   * outlines, and hands the same outlines to the SVG writer and the rasterizer.
+   * No geometry happens in this file. It reads a name and some settings, asks
+   * lib/signature for outlines, and hands the same outlines to the SVG writer
+   * and the rasterizer.
    */
   import { downloadBlob, downloadText, fileNameFor } from '../lib/signature/download';
   import { boundsHeight, boundsWidth, pathBounds } from '../lib/signature/export/bounds';
   import { pngSize, toPng } from '../lib/signature/export/raster';
   import { toSvg } from '../lib/signature/export/svg';
+  import type { PathCommand } from '../lib/signature/path';
+  import { loadSettings, saveSettings } from '../lib/signature/settings';
+  import { INKS, SIZES, normalizeHex, sizeById } from '../lib/signature/style';
   import { unsupportedCharacters } from '../lib/signature/type/coverage';
-  import { FACES } from '../lib/signature/type/faces';
+  import { FACES, faceById } from '../lib/signature/type/faces';
   import { loadFace } from '../lib/signature/type/font';
   import { textToPath } from '../lib/signature/type/text-to-path';
-  import type { PathCommand } from '../lib/signature/path';
 
-  /** One face and one colour for now; the rest of the controls come next. */
-  const face = FACES[0];
-  const INK = '#10201a';
-  const FONT_SIZE = 120;
   const PADDING = 0.08;
   const SCALE = 2;
 
+  const stored = loadSettings();
+
   let name = $state('');
+  let faceId = $state(stored.faceId);
+  let sizeId = $state(stored.sizeId);
+  let ink = $state(stored.ink);
+  let hexDraft = $state(stored.ink);
+  let hexRejected = $state(false);
+
+  /** A dark backdrop for the preview, because white ink on white shows nothing. */
+  let darkStage = $state(false);
+
   let font = $state<Awaited<ReturnType<typeof loadFace>> | null>(null);
   let fontError = $state('');
   let saving = $state(false);
   let saveError = $state('');
 
-  // Loading the face is the only thing here that can be slow or fail, and it
-  // happens once. Everything downstream is synchronous maths on its outlines.
+  const face = $derived(faceById(faceId) ?? FACES[0]);
+  const size = $derived(sizeById(sizeId));
+
+  // The chosen face is the only thing here that can be slow or fail. Everything
+  // downstream is synchronous maths on its outlines.
   $effect(() => {
+    const wanted = face;
     let cancelled = false;
-    loadFace(face)
+    font = null;
+    fontError = '';
+    loadFace(wanted)
       .then((loaded) => {
         if (!cancelled) font = loaded;
       })
@@ -49,33 +65,48 @@
     };
   });
 
+  $effect(() => {
+    saveSettings({ faceId, sizeId, ink });
+  });
+
   const trimmed = $derived(name.trim());
+
+  const commands = $derived<PathCommand[]>(
+    font && trimmed ? textToPath(font, trimmed, { fontSize: size.fontSize }) : [],
+  );
 
   // A face asked for a glyph it lacks draws an empty box and reports nothing.
   // Letting that reach the export would hand someone a picture of rectangles
   // and call it their signature.
   const missing = $derived(font && trimmed ? unsupportedCharacters(font, trimmed) : []);
 
-  const commands = $derived<PathCommand[]>(
-    font && trimmed ? textToPath(font, trimmed, { fontSize: FONT_SIZE }) : [],
-  );
-
   // Null rather than an empty box when there is no ink: a name of nothing but
   // spaces draws nothing, and there is no meaningful size for nothing.
-  const ink = $derived(pathBounds(commands));
-
-  const svg = $derived(ink ? toSvg(commands, { padding: PADDING, color: INK }) : null);
-
-  const size = $derived(
-    ink ? pngSize(commands, { padding: PADDING, color: INK, scale: SCALE }) : null,
+  const bounds = $derived(pathBounds(commands));
+  const svg = $derived(bounds ? toSvg(commands, { padding: PADDING, color: ink }) : null);
+  const png = $derived(
+    bounds ? pngSize(commands, { padding: PADDING, color: ink, scale: SCALE }) : null,
   );
 
+  function pickHex(value: string) {
+    hexDraft = value;
+    const parsed = normalizeHex(value);
+    hexRejected = value.trim() !== '' && parsed === null;
+    if (parsed) ink = parsed;
+  }
+
+  function pickInk(hex: string) {
+    ink = hex;
+    hexDraft = hex;
+    hexRejected = false;
+  }
+
   async function savePng() {
-    if (!ink) return;
+    if (!bounds) return;
     saving = true;
     saveError = '';
     try {
-      const blob = await toPng(commands, { padding: PADDING, color: INK, scale: SCALE });
+      const blob = await toPng(commands, { padding: PADDING, color: ink, scale: SCALE });
       if (blob) downloadBlob(blob, fileNameFor(trimmed, 'png'));
     } catch (e) {
       saveError = e instanceof Error ? e.message : String(e);
@@ -85,8 +116,7 @@
   }
 
   function saveSvg() {
-    if (!svg) return;
-    downloadText(svg, fileNameFor(trimmed, 'svg'), 'image/svg+xml');
+    if (svg) downloadText(svg, fileNameFor(trimmed, 'svg'), 'image/svg+xml');
   }
 </script>
 
@@ -107,13 +137,14 @@
       <div class="flow-main">
         <div class="stepper">
           <button class="step active" disabled>1 Create</button>
-          <button class="step" class:active={!!ink} disabled>2 Export</button>
+          <button class="step" class:active={!!bounds} disabled>2 Style</button>
+          <button class="step" class:active={!!bounds} disabled>3 Export</button>
         </div>
 
         <div class="flow-panel">
           <h2 class="panel-title">Type a name</h2>
           <p class="panel-copy">
-            The name is set in {face.name} and converted to outlines here, on this device. It is
+            The name is set in a bundled face and converted to outlines here, on this device. It is
             never sent anywhere, and it is not saved when you close the page.
           </p>
 
@@ -130,29 +161,44 @@
             />
           </div>
 
-          <div class="ink-stage">
+          <div class="ink-stage" class:dark={darkStage}>
             {#if fontError}
               <p class="empty-ink">{fontError}</p>
             {:else if !font}
               <p class="empty-ink">Loading {face.name}…</p>
-            {:else if !ink}
+            {:else if !bounds}
               <p class="empty-ink">Your signature appears here as you type.</p>
             {:else}
               <!--
                 Generated by toSvg from outlines this app computed; the only
                 attribute carrying outside input is the colour, which that
-                function escapes. The typed name never reaches the markup as
-                text — by the time it gets here it is path data.
+                function escapes and normalizeHex has already vetted. The typed
+                name never reaches the markup as text — by the time it gets
+                here it is path data.
               -->
               {@html svg}
             {/if}
           </div>
 
-          {#if ink && size}
+          <div class="stage-tools">
+            <span class="stage-hint">Checks show where the image is transparent.</span>
+            <button
+              type="button"
+              class="stage-toggle"
+              aria-pressed={darkStage}
+              onclick={() => (darkStage = !darkStage)}
+            >
+              {darkStage ? 'On light' : 'On dark'}
+            </button>
+          </div>
+
+          {#if bounds && png}
             <div class="ink-facts">
-              <span>Ink <strong>{Math.round(boundsWidth(ink))} × {Math.round(boundsHeight(ink))}</strong></span>
-              <span>PNG <strong>{size.width} × {size.height}</strong> at {SCALE}×</span>
-              <span>SVG <strong>{((svg?.length ?? 0) / 1024).toFixed(1)} kB</strong> vector, no font needed</span>
+              <span>
+                Ink <strong>{Math.round(boundsWidth(bounds))} × {Math.round(boundsHeight(bounds))}</strong>
+              </span>
+              <span>PNG <strong>{png.width} × {png.height}</strong> at {SCALE}×</span>
+              <span>SVG <strong>{((svg?.length ?? 0) / 1024).toFixed(1)} kB</strong> vector</span>
             </div>
           {/if}
 
@@ -160,16 +206,105 @@
             <div class="notice warn">
               <strong>{face.name} cannot draw {missing.map((c) => `"${c}"`).join(', ')}.</strong>
               {missing.length === 1 ? 'It comes out as an empty box.' : 'They come out as empty boxes.'}
-              This face covers Latin, including accented letters; it has no glyphs for other
-              scripts.
+              Another face may have the glyph — the notes beside each one say which are limited.
             </div>
           {/if}
+        </div>
+
+        <div class="flow-panel">
+          <h2 class="panel-title">Style it</h2>
+          <p class="panel-copy">
+            Size sets the em size the glyphs are laid out at, so a large signature is drawn large
+            rather than magnified. Your choices here are remembered; the name is not.
+          </p>
+
+          <div class="field">
+            <span class="field-label">Face</span>
+            <div class="face-grid">
+              {#each FACES as option}
+                <button
+                  type="button"
+                  class="face-option"
+                  class:selected={option.id === faceId}
+                  aria-pressed={option.id === faceId}
+                  onclick={() => (faceId = option.id)}
+                >
+                  <strong>{option.name}</strong>
+                  <span>{option.note}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Size</span>
+            <div class="choice-row">
+              {#each SIZES as option}
+                <button
+                  type="button"
+                  class="choice"
+                  class:selected={option.id === sizeId}
+                  aria-pressed={option.id === sizeId}
+                  onclick={() => (sizeId = option.id)}
+                >
+                  {option.label}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Ink</span>
+            <div class="swatches">
+              {#each INKS as option}
+                <button
+                  type="button"
+                  class="swatch"
+                  class:selected={option.hex === ink}
+                  style="--swatch: {option.hex}"
+                  aria-pressed={option.hex === ink}
+                  aria-label={option.name}
+                  title={option.name}
+                  onclick={() => pickInk(option.hex)}
+                ></button>
+              {/each}
+            </div>
+
+            <div class="hex-row">
+              <label for="signature-hex">Or a hex colour</label>
+              <input
+                id="signature-hex"
+                class="input hex-input"
+                class:bad={hexRejected}
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                inputmode="text"
+                maxlength="7"
+                value={hexDraft}
+                oninput={(e) => pickHex(e.currentTarget.value)}
+                placeholder="#1f3a68"
+              />
+            </div>
+            {#if hexRejected}
+              <p class="field-help">
+                Not a hex colour. Use three or six digits, like #abc or #1f3a68.
+              </p>
+            {/if}
+          </div>
+        </div>
+
+        <div class="flow-panel">
+          <h2 class="panel-title">Export it</h2>
+          <p class="panel-copy">
+            Both files are drawn from the same outlines, so they are the same picture. The PNG has
+            a transparent background; the SVG contains paths, not text, so it opens correctly
+            without {face.name} installed.
+          </p>
 
           <div class="flow-actions">
-            <button class="button ghost-dark" disabled={!svg} onclick={saveSvg}>
-              Save SVG
-            </button>
-            <button class="button dark" disabled={!ink || saving} onclick={savePng}>
+            <button class="button ghost-dark" disabled={!svg} onclick={saveSvg}>Save SVG</button>
+            <button class="button dark" disabled={!bounds || saving} onclick={savePng}>
               {saving ? 'Rendering…' : 'Save PNG'}
             </button>
           </div>

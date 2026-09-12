@@ -12,6 +12,7 @@ is built into the bundle and served from the same origin as the app.
 | Package | Version | Licence | Used for |
 | --- | --- | --- | --- |
 | [opentype.js](https://github.com/opentypejs/opentype.js) | 2.0.0 | MIT | Reading `.ttf` files and turning text into glyph outlines |
+| [signature_pad](https://github.com/szimek/signature_pad) | 5.1.4 | MIT | Smoothing pointer input into curves, and weighting them by pen speed |
 
 Both MIT and the AGPL-3.0-or-later are satisfied by shipping the notices; MIT
 imposes no copyleft obligation on this project.

@@ -1,0 +1,88 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Draw check</title>
+<!--
+  Manual check for draw mode, and the place the parser fixture comes from.
+
+  Strokes are injected with signature_pad's own `fromData` rather than by
+  faking pointer events. That is not a shortcut around the input handling — it
+  is the only way to get deterministic timing, and timing is what the width
+  model is computed from. Synthetic pointer events depend on setTimeout, which
+  a browser clamps to once a second in a background tab, so a test built on
+  them measures the scheduler rather than the code.
+
+    npm run dev
+    open http://localhost:5180/scripts/draw-check.html and read the console
+-->
+<body>
+<script type="module">
+  import SignaturePad from '/node_modules/signature_pad/dist/signature_pad.js';
+  import { parseSignaturePadSvg } from '/src/lib/signature/draw/segments.ts';
+  import { outlineInk } from '/src/lib/signature/draw/outline.ts';
+  import { pathBounds, boundsWidth, boundsHeight } from '/src/lib/signature/export/bounds.ts';
+  import { toSvg } from '/src/lib/signature/export/svg.ts';
+  import { toPng, pngSize } from '/src/lib/signature/export/raster.ts';
+
+  const log = (...a) => console.log('[draw]', ...a);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 600;
+  canvas.height = 220;
+  document.body.append(canvas);
+
+  const pad = new SignaturePad(canvas, { penColor: '#12130f', minWidth: 1.1, maxWidth: 3.2 });
+
+  /** A flowing stroke with realistic timing, so velocity means something. */
+  const stroke = (x0, y0, count, speed) => {
+    const points = [];
+    let time = Date.now();
+    for (let i = 0; i <= count; i++) {
+      time += 16 + Math.round(Math.sin(i / 3) * 6);
+      points.push({
+        x: x0 + i * speed,
+        y: y0 + Math.sin(i / 4.5) * 30 - i * 0.6,
+        pressure: 0.5,
+        time,
+      });
+    }
+    return { points, penColor: '#12130f', dotSize: 0, minWidth: 1.1, maxWidth: 3.2, velocityFilterWeight: 0.7, compositeOperation: 'source-over' };
+  };
+
+  pad.fromData([stroke(40, 120, 34, 9), stroke(360, 130, 16, 8)]);
+
+  const svgText = pad.toSVG();
+  log('signature_pad SVG:', svgText.length, 'bytes');
+  log('  <path> elements:', (svgText.match(/<path/g) || []).length);
+  log('  <circle>:', (svgText.match(/<circle/g) || []).length, ' <line>:', (svgText.match(/<line/g) || []).length);
+
+  const ink = parseSignaturePadSvg(svgText);
+  log('parsed:', ink.segments.length, 'segments,', ink.dots.length, 'dots');
+  const widths = ink.segments.map((s) => s.width);
+  log('  widths:', Math.min(...widths).toFixed(2), '→', Math.max(...widths).toFixed(2));
+
+  const commands = outlineInk(ink);
+  const kinds = [...new Set(commands.map((c) => c.type))].sort().join('');
+  const box = pathBounds(commands);
+  log('outline:', commands.length, 'commands, kinds =', kinds);
+  log('  contours:', commands.filter((c) => c.type === 'M').length, ' closes:', commands.filter((c) => c.type === 'Z').length);
+  log('  bounds:', boundsWidth(box).toFixed(1), 'x', boundsHeight(box).toFixed(1));
+
+  const svg = toSvg(commands, { padding: 0.08, color: '#12130f' });
+  log('exported SVG:', svg.length, 'bytes, NaN =', svg.includes('NaN'), ', <text> =', svg.includes('<text'));
+
+  const blob = await toPng(commands, { padding: 0.08, color: '#12130f', scale: 2 });
+  const bmp = await createImageBitmap(blob);
+  const want = pngSize(commands, { padding: 0.08, color: '#12130f', scale: 2 });
+  log('PNG:', blob.size, 'B,', bmp.width + 'x' + bmp.height, 'predicted', want.width + 'x' + want.height,
+      'match =', bmp.width === want.width && bmp.height === want.height);
+
+  const c2 = new OffscreenCanvas(bmp.width, bmp.height);
+  const cx = c2.getContext('2d');
+  cx.drawImage(bmp, 0, 0);
+  log('corner alpha (0 = transparent):', cx.getImageData(0, 0, 1, 1).data[3]);
+
+  // Stash for copying out as a test fixture.
+  window.__fixture = svgText;
+  window.__outline = svg;
+  log('DONE');
+</script>

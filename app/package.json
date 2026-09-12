@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "fonts:vendor": "node scripts/vendor-fonts.mjs",
     "dump:type": "vite-node scripts/dump-type-svg.ts",
+    "dump:draw": "vite-node scripts/dump-draw-svg.ts",
     "check:png": "echo \"npm run dev, then open http://localhost:5173/scripts/png-check.html and read the console\""
   },
   "devDependencies": {
@@ -38,6 +39,7 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
-    "opentype.js": "^2.0.0"
+    "opentype.js": "^2.0.0",
+    "signature_pad": "^5.1.4"
   }
 }

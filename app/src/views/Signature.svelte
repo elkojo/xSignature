@@ -11,6 +11,11 @@
    * lib/signature for outlines, and hands the same outlines to the SVG writer
    * and the rasterizer.
    */
+  import { untrack } from 'svelte';
+  import type SignaturePad from 'signature_pad';
+
+  import { createPad, fitPad, inkFrom, undoStroke } from '../lib/signature/draw/pad';
+  import { outlineInk } from '../lib/signature/draw/outline';
   import { downloadBlob, downloadText, fileNameFor } from '../lib/signature/download';
   import { boundsHeight, boundsWidth, pathBounds } from '../lib/signature/export/bounds';
   import { pngSize, toPng } from '../lib/signature/export/raster';
@@ -28,7 +33,25 @@
 
   const stored = loadSettings();
 
+  type Mode = 'type' | 'draw';
+  let mode = $state<Mode>('type');
+
   let name = $state('');
+
+  let canvas = $state<HTMLCanvasElement | null>(null);
+  let pad: SignaturePad | null = null;
+
+  /**
+   * The drawn outline, recomputed whenever the pad changes.
+   *
+   * Held as state rather than derived from the pad, because the pad is a plain
+   * object that knows nothing about reactivity: there is no signal to depend
+   * on, and inventing one would mean a dependency that reads as a mistake.
+   * This is the honest version — the events that change the drawing are the
+   * events that update this.
+   */
+  let drawn = $state<PathCommand[]>([]);
+  let hasStrokes = $state(false);
   let faceId = $state(stored.faceId);
   let sizeId = $state(stored.sizeId);
   let ink = $state(stored.ink);
@@ -69,16 +92,76 @@
     saveSettings({ faceId, sizeId, ink });
   });
 
+  // The pad lives as long as its canvas, and only as long as its canvas.
+  //
+  // `ink` is read untracked deliberately. Reading it normally would make the
+  // colour a dependency of this effect, so choosing a different ink would tear
+  // the pad down and build a new one — wiping the drawing. That failed
+  // quietly rather than loudly: the preview went on showing the old signature
+  // from state while the canvas underneath was blank and the next stroke
+  // started from nothing. The colour is applied by the effect below instead,
+  // which is the only thing that should react to it.
+  $effect(() => {
+    const element = canvas;
+    if (!element) return;
+
+    const created = createPad(element, { penColor: untrack(() => ink) });
+    pad = created;
+    fitPad(created, element);
+
+    const onStroke = () => refreshDrawing();
+    created.addEventListener('endStroke', onStroke);
+
+    const resize = new ResizeObserver(() => {
+      fitPad(created, element);
+      refreshDrawing();
+    });
+    resize.observe(element);
+
+    return () => {
+      resize.disconnect();
+      created.removeEventListener('endStroke', onStroke);
+      created.off();
+      pad = null;
+    };
+  });
+
+  // Keep the live ink the colour it will be exported in.
+  $effect(() => {
+    if (pad) pad.penColor = ink;
+  });
+
+  function refreshDrawing() {
+    drawn = pad ? outlineInk(inkFrom(pad)) : [];
+    hasStrokes = !!pad && !pad.isEmpty();
+  }
+
+  function clearDrawing() {
+    pad?.clear();
+    refreshDrawing();
+  }
+
+  function undoLast() {
+    if (pad) undoStroke(pad);
+    refreshDrawing();
+  }
+
   const trimmed = $derived(name.trim());
 
   const commands = $derived<PathCommand[]>(
-    font && trimmed ? textToPath(font, trimmed, { fontSize: size.fontSize }) : [],
+    mode === 'draw'
+      ? drawn
+      : font && trimmed
+        ? textToPath(font, trimmed, { fontSize: size.fontSize })
+        : [],
   );
 
   // A face asked for a glyph it lacks draws an empty box and reports nothing.
   // Letting that reach the export would hand someone a picture of rectangles
   // and call it their signature.
-  const missing = $derived(font && trimmed ? unsupportedCharacters(font, trimmed) : []);
+  const missing = $derived(
+    mode === 'type' && font && trimmed ? unsupportedCharacters(font, trimmed) : [],
+  );
 
   // Null rather than an empty box when there is no ink: a name of nothing but
   // spaces draws nothing, and there is no meaningful size for nothing.
@@ -107,7 +190,7 @@
     saveError = '';
     try {
       const blob = await toPng(commands, { padding: PADDING, color: ink, scale: SCALE });
-      if (blob) downloadBlob(blob, fileNameFor(trimmed, 'png'));
+      if (blob) downloadBlob(blob, fileNameFor(mode === 'draw' ? '' : trimmed, 'png'));
     } catch (e) {
       saveError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -116,7 +199,7 @@
   }
 
   function saveSvg() {
-    if (svg) downloadText(svg, fileNameFor(trimmed, 'svg'), 'image/svg+xml');
+    if (svg) downloadText(svg, fileNameFor(mode === 'draw' ? '' : trimmed, 'svg'), 'image/svg+xml');
   }
 </script>
 
@@ -142,32 +225,87 @@
         </div>
 
         <div class="flow-panel">
-          <h2 class="panel-title">Type a name</h2>
+          <h2 class="panel-title">Type a name, or draw one</h2>
           <p class="panel-copy">
-            The name is set in a bundled face and converted to outlines here, on this device. It is
-            never sent anywhere, and it is not saved when you close the page.
+            Either way the result becomes the same kind of outline, so the PNG and the SVG are the
+            same picture. Nothing you type or draw is sent anywhere, and none of it is kept when
+            you close the page.
           </p>
 
-          <div class="field">
-            <label for="signature-name">Name</label>
-            <input
-              id="signature-name"
-              class="input"
-              type="text"
-              autocomplete="off"
-              spellcheck="false"
-              bind:value={name}
-              placeholder="Ada Lovelace"
-            />
+          <div class="mode-tabs" role="tablist" aria-label="How to make the signature">
+            <button
+              type="button"
+              role="tab"
+              class="mode-tab"
+              class:selected={mode === 'type'}
+              aria-selected={mode === 'type'}
+              onclick={() => (mode = 'type')}
+            >
+              Type
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="mode-tab"
+              class:selected={mode === 'draw'}
+              aria-selected={mode === 'draw'}
+              onclick={() => (mode = 'draw')}
+            >
+              Draw
+            </button>
           </div>
 
+          {#if mode === 'type'}
+            <div class="field">
+              <label for="signature-name">Name</label>
+              <input
+                id="signature-name"
+                class="input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                bind:value={name}
+                placeholder="Ada Lovelace"
+              />
+            </div>
+          {:else}
+            <div class="field">
+              <span class="field-label">Sign here</span>
+              <!--
+                touch-action is set on the element by signature_pad itself, so a
+                finger draws instead of scrolling the page.
+              -->
+              <canvas
+                bind:this={canvas}
+                class="pad"
+                class:dark={darkStage}
+                aria-label="Drawing area"
+              ></canvas>
+              <div class="pad-tools">
+                <span class="field-help">Mouse, finger or stylus. Drawing is smoothed as you go.</span>
+                <span class="pad-buttons">
+                  <button type="button" class="stage-toggle" disabled={!hasStrokes} onclick={undoLast}>
+                    Undo stroke
+                  </button>
+                  <button type="button" class="stage-toggle" disabled={!hasStrokes} onclick={clearDrawing}>
+                    Clear
+                  </button>
+                </span>
+              </div>
+            </div>
+          {/if}
+
           <div class="ink-stage" class:dark={darkStage}>
-            {#if fontError}
+            {#if mode === 'type' && fontError}
               <p class="empty-ink">{fontError}</p>
-            {:else if !font}
+            {:else if mode === 'type' && !font}
               <p class="empty-ink">Loading {face.name}…</p>
             {:else if !bounds}
-              <p class="empty-ink">Your signature appears here as you type.</p>
+              <p class="empty-ink">
+                {mode === 'draw'
+                  ? 'What you draw above appears here, trimmed and ready to export.'
+                  : 'Your signature appears here as you type.'}
+              </p>
             {:else}
               <!--
                 Generated by toSvg from outlines this app computed; the only
@@ -214,10 +352,13 @@
         <div class="flow-panel">
           <h2 class="panel-title">Style it</h2>
           <p class="panel-copy">
-            Size sets the em size the glyphs are laid out at, so a large signature is drawn large
-            rather than magnified. Your choices here are remembered; the name is not.
+            {mode === 'type'
+              ? 'Size sets the em size the glyphs are laid out at, so a large signature is drawn large rather than magnified.'
+              : 'A drawn signature carries its own size and weight, so only the ink applies here.'}
+            Your choices are remembered; what you write is not.
           </p>
 
+          {#if mode === 'type'}
           <div class="field">
             <span class="field-label">Face</span>
             <div class="face-grid">
@@ -252,6 +393,8 @@
               {/each}
             </div>
           </div>
+
+          {/if}
 
           <div class="field">
             <span class="field-label">Ink</span>
@@ -298,8 +441,10 @@
           <h2 class="panel-title">Export it</h2>
           <p class="panel-copy">
             Both files are drawn from the same outlines, so they are the same picture. The PNG has
-            a transparent background; the SVG contains paths, not text, so it opens correctly
-            without {face.name} installed.
+            a transparent background; the SVG contains paths only, so it opens correctly anywhere
+            — {mode === 'type'
+              ? `with or without ${face.name} installed`
+              : 'at any size, without turning into a blurry bitmap'}.
           </p>
 
           <div class="flow-actions">

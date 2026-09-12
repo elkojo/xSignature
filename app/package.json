@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "fonts:vendor": "node scripts/vendor-fonts.mjs",
-    "dump:type": "vite-node scripts/dump-type-svg.ts"
+    "dump:type": "vite-node scripts/dump-type-svg.ts",
+    "check:png": "echo \"npm run dev, then open http://localhost:5173/scripts/png-check.html and read the console\""
   },
   "devDependencies": {
     "@expo-google-fonts/dancing-script": "^0.4.2",

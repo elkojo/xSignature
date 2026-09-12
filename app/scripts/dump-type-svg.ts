@@ -2,20 +2,21 @@
  * Dump a typed name to an SVG file, so the outlines can be looked at directly.
  *
  * This is a development tool, not part of the app. It exists because the only
- * honest way to check that text→path works is to open the result and see a
- * signature — a unit test can tell you the commands are well formed, but not
- * that they spell someone's name.
+ * honest way to check the pipeline works is to open the result and see a
+ * signature — a unit test can tell you the box is tight and the commands well
+ * formed, but not that they spell someone's name.
  *
  * The font is read from disk rather than fetched, because there is no server
  * here. Everything after that is exactly the code the app runs.
  *
- *   npx vite-node scripts/dump-type-svg.ts -- "Ada Lovelace"
+ *   npm run dump:type -- "Ada Lovelace"
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'opentype.js';
 
-import { toPathData } from '../src/lib/signature/path';
+import { boundsHeight, boundsWidth, pathBounds } from '../src/lib/signature/export/bounds';
+import { toSvg } from '../src/lib/signature/export/svg';
 import { textToPath } from '../src/lib/signature/type/text-to-path';
 
 const text = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? 'Ada Lovelace';
@@ -27,21 +28,35 @@ const ttf = fileURLToPath(
 const font = parse(readFileSync(ttf).buffer);
 
 const commands = textToPath(font, text, { fontSize });
-const d = toPathData(commands);
+const svg = toSvg(commands, { padding: 0.08, color: '#10201a' });
 
-// Deliberately crude framing: this dump is for looking at the glyph outlines,
-// and the real bounding box is the next step's job. A generous box and a
-// visible baseline are more useful here than a tight one.
-const width = font.getAdvanceWidth(text, fontSize);
-const pad = fontSize;
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(width + pad * 2)}" height="${fontSize * 2.5}" viewBox="${-pad} ${-fontSize * 1.4} ${width + pad * 2} ${fontSize * 2.5}">
-  <line x1="${-pad}" y1="0" x2="${width + pad}" y2="0" stroke="#d33" stroke-width="1"/>
-  <path d="${d}" fill="#10201a"/>
-</svg>
-`;
+if (!svg) {
+  console.error(`"${text}" draws no ink.`);
+  process.exit(1);
+}
 
 const out = fileURLToPath(new URL('../type-dump.svg', import.meta.url));
 writeFileSync(out, svg);
 
-console.log(`"${text}" → ${commands.length} commands, advance width ${width.toFixed(1)}`);
+// What the box would have been without solving the curves: the extent of every
+// number in the command stream, control points included.
+const ink = pathBounds(commands)!;
+let hullMinY = Infinity;
+let hullMaxY = -Infinity;
+for (const c of commands) {
+  if (c.type === 'Z') continue;
+  const ys = c.type === 'C' ? [c.y, c.y1, c.y2] : c.type === 'Q' ? [c.y, c.y1] : [c.y];
+  for (const y of ys) {
+    hullMinY = Math.min(hullMinY, y);
+    hullMaxY = Math.max(hullMaxY, y);
+  }
+}
+
+const tight = boundsHeight(ink);
+const loose = hullMaxY - hullMinY;
+
+console.log(`"${text}" — ${commands.length} commands, ${svg.length} bytes of SVG`);
+console.log(`ink            : ${boundsWidth(ink).toFixed(1)} x ${tight.toFixed(1)}`);
+console.log(`control hull   : ${loose.toFixed(1)} tall`);
+console.log(`slack avoided  : ${(loose - tight).toFixed(1)} (${((loose / tight - 1) * 100).toFixed(1)}% taller)`);
 console.log(out);

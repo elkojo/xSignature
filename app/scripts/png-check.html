@@ -1,0 +1,77 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>PNG check</title>
+<!--
+  Manual check for the one part of the export pipeline the unit suite cannot
+  reach: rasterization needs a canvas, and the tests run in node.
+
+  Everything the tests can check without a browser, they do — the bounding box,
+  the layout, the SVG, and that the canvas replay issues the same geometry the
+  SVG writes. What is left is whether the browser then turns that into the
+  pixels we expect, which is what this page measures: predicted size against
+  actual bitmap, a transparent corner, ink present, and the margin landing
+  where the padding says it should.
+
+    npm run dev
+    open http://localhost:5180/scripts/png-check.html and read the console
+-->
+<body>
+<script type="module">
+  import { parse } from '/node_modules/opentype.js/dist/opentype.mjs';
+  import { textToPath } from '/src/lib/signature/type/text-to-path.ts';
+  import { toSvg } from '/src/lib/signature/export/svg.ts';
+  import { toPng, pngSize } from '/src/lib/signature/export/raster.ts';
+  import url from '/src/lib/signature/fonts/DancingScript-Regular.ttf?url';
+
+  const log = (...a) => { console.log('[check]', ...a); };
+
+  const font = parse(await (await fetch(url)).arrayBuffer());
+  const cmds = textToPath(font, 'Ada Lovelace', { fontSize: 120 });
+  const opts = { padding: 0.08, color: '#10201a' };
+
+  for (const scale of [1, 2, 4]) {
+    const blob = await toPng(cmds, { ...opts, scale });
+    const bmp = await createImageBitmap(blob);
+    const want = pngSize(cmds, { ...opts, scale });
+    log(`scale ${scale}: blob ${blob.type} ${blob.size}B, bitmap ${bmp.width}x${bmp.height}, predicted ${want.width}x${want.height}, match=${bmp.width === want.width && bmp.height === want.height}`);
+  }
+
+  // Transparency: the corner must be fully transparent with no background.
+  const blob = await toPng(cmds, opts);
+  const bmp = await createImageBitmap(blob);
+  const c = new OffscreenCanvas(bmp.width, bmp.height);
+  const ctx = c.getContext('2d');
+  ctx.drawImage(bmp, 0, 0);
+  const corner = ctx.getImageData(0, 0, 1, 1).data;
+  log('corner alpha (transparent expected 0):', corner[3]);
+
+  // Ink is actually present: some pixel is opaque.
+  const all = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+  let opaque = 0;
+  for (let i = 3; i < all.length; i += 4) if (all[i] > 200) opaque++;
+  log('opaque pixels:', opaque, 'of', bmp.width * bmp.height);
+
+  // Same geometry as the SVG? Compare the PNG's ink bbox to the SVG viewBox.
+  let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
+  for (let y = 0; y < bmp.height; y++) for (let x = 0; x < bmp.width; x++) {
+    if (all[(y * bmp.width + x) * 4 + 3] > 10) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  }
+  const svg = toSvg(cmds, opts);
+  const vb = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg);
+  log(`png ink bbox: ${minX},${minY} → ${maxX},${maxY}  canvas ${bmp.width}x${bmp.height}`);
+  log(`svg viewBox : ${vb[1]} x ${vb[2]}`);
+  const margin = 96.8 * 0.08;
+  log(`expected margin ≈ ${margin.toFixed(1)}px on each side; measured left ${minX}, top ${minY}, right ${bmp.width - 1 - maxX}, bottom ${bmp.height - 1 - maxY}`);
+
+  // White-background variant.
+  const onWhite = await toPng(cmds, { ...opts, background: '#ffffff' });
+  const wb = await createImageBitmap(onWhite);
+  const wc = new OffscreenCanvas(wb.width, wb.height);
+  const wctx = wc.getContext('2d');
+  wctx.drawImage(wb, 0, 0);
+  log('white-bg corner alpha (expected 255):', wctx.getImageData(0, 0, 1, 1).data[3]);
+  log('DONE');
+</script>

@@ -14,7 +14,7 @@
   import { untrack } from 'svelte';
   import type SignaturePad from 'signature_pad';
 
-  import { createPad, fitPad, inkFrom, undoStroke } from '../lib/signature/draw/pad';
+  import { createPad, fitPad, inkFrom, padHasPressure, undoStroke } from '../lib/signature/draw/pad';
   import { outlineInk } from '../lib/signature/draw/outline';
   import { downloadBlob, downloadText, fileNameFor } from '../lib/signature/download';
   import { boundsHeight, boundsWidth, pathBounds } from '../lib/signature/export/bounds';
@@ -52,6 +52,8 @@
    */
   let drawn = $state<PathCommand[]>([]);
   let hasStrokes = $state(false);
+  /** True once a stylus has reported pressure that actually varies. */
+  let usingPressure = $state(false);
   let faceId = $state(stored.faceId);
   let sizeId = $state(stored.sizeId);
   let ink = $state(stored.ink);
@@ -134,6 +136,7 @@
   function refreshDrawing() {
     drawn = pad ? outlineInk(inkFrom(pad)) : [];
     hasStrokes = !!pad && !pad.isEmpty();
+    usingPressure = !!pad && padHasPressure(pad);
   }
 
   function clearDrawing() {
@@ -282,7 +285,11 @@
                 aria-label="Drawing area"
               ></canvas>
               <div class="pad-tools">
-                <span class="field-help">Mouse, finger or stylus. Drawing is smoothed as you go.</span>
+                <span class="field-help">
+                  {usingPressure
+                    ? 'Stylus pressure is being used: press harder for a heavier line.'
+                    : 'Mouse, finger or stylus. The line thickens where you slow down.'}
+                </span>
                 <span class="pad-buttons">
                   <button type="button" class="stage-toggle" disabled={!hasStrokes} onclick={undoLast}>
                     Undo stroke

@@ -1,5 +1,6 @@
 import SignaturePad from 'signature_pad';
 
+import { applyPressure, pressureVaries, type PressurePoint } from './pressure';
 import { parseSignaturePadSvg, type DrawnInk } from './segments';
 
 export interface PadOptions {
@@ -57,13 +58,26 @@ export function undoStroke(pad: SignaturePad): void {
   pad.fromData(strokes);
 }
 
+/** Every recorded sample, flattened out of the per-stroke groups. */
+function samplesOf(pad: SignaturePad): PressurePoint[] {
+  return pad.toData().flatMap((group) => group.points);
+}
+
 /**
  * Read the drawn ink back out as curves.
  *
- * Via the library's own SVG, which is where it publishes the smoothing and the
- * velocity widths it worked out. See parseSignaturePadSvg.
+ * Two things are taken from the pad, because it keeps them apart. Its SVG
+ * carries the smoothing and the velocity widths — the work this app depends on
+ * the library for. Its point data carries the pressure, which the library
+ * records and then ignores. Putting them back together is what makes a stylus
+ * worth having.
  */
 export function inkFrom(pad: SignaturePad): DrawnInk {
   if (pad.isEmpty()) return { segments: [], dots: [] };
-  return parseSignaturePadSvg(pad.toSVG());
+  return applyPressure(parseSignaturePadSvg(pad.toSVG()), samplesOf(pad));
+}
+
+/** Whether this drawing carries usable pressure, for the interface to say so. */
+export function padHasPressure(pad: SignaturePad): boolean {
+  return !pad.isEmpty() && pressureVaries(samplesOf(pad));
 }

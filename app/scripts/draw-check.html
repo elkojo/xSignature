@@ -18,6 +18,7 @@
 <script type="module">
   import SignaturePad from '/node_modules/signature_pad/dist/signature_pad.js';
   import { parseSignaturePadSvg } from '/src/lib/signature/draw/segments.ts';
+  import { applyPressure, pressureVaries } from '/src/lib/signature/draw/pressure.ts';
   import { outlineInk } from '/src/lib/signature/draw/outline.ts';
   import { pathBounds, boundsWidth, boundsHeight } from '/src/lib/signature/export/bounds.ts';
   import { toSvg } from '/src/lib/signature/export/svg.ts';
@@ -33,7 +34,7 @@
   const pad = new SignaturePad(canvas, { penColor: '#12130f', minWidth: 1.1, maxWidth: 3.2 });
 
   /** A flowing stroke with realistic timing, so velocity means something. */
-  const stroke = (x0, y0, count, speed) => {
+  const stroke = (x0, y0, count, speed, pressureAt = () => 0.5) => {
     const points = [];
     let time = Date.now();
     for (let i = 0; i <= count; i++) {
@@ -41,7 +42,7 @@
       points.push({
         x: x0 + i * speed,
         y: y0 + Math.sin(i / 4.5) * 30 - i * 0.6,
-        pressure: 0.5,
+        pressure: pressureAt(i, count),
         time,
       });
     }
@@ -69,6 +70,29 @@
 
   const svg = toSvg(commands, { padding: 0.08, color: '#12130f' });
   log('exported SVG:', svg.length, 'bytes, NaN =', svg.includes('NaN'), ', <text> =', svg.includes('<text'));
+
+  // Same geometry drawn twice: once as a mouse would report it, once as a
+  // stylus. The only difference is the pressure channel.
+  const mousePad = new SignaturePad(document.createElement('canvas'), {});
+  const stylusPad = new SignaturePad(document.createElement('canvas'), {});
+  const geometry = (pressureAt) => [stroke(40, 120, 30, 9, pressureAt)];
+  mousePad.fromData(geometry(() => 0.5));
+  stylusPad.fromData(geometry((i, n) => 0.1 + 0.85 * (i / n)));
+
+  const mouseSamples = mousePad.toData().flatMap((g) => g.points);
+  const stylusSamples = stylusPad.toData().flatMap((g) => g.points);
+  log('pressure detected — mouse:', pressureVaries(mouseSamples), ' stylus:', pressureVaries(stylusSamples));
+
+  const rawMouse = parseSignaturePadSvg(mousePad.toSVG());
+  const rawStylus = parseSignaturePadSvg(stylusPad.toSVG());
+  const withMouse = applyPressure(rawMouse, mouseSamples);
+  const withStylus = applyPressure(rawStylus, stylusSamples);
+
+  log('mouse widths unchanged:', withMouse === rawMouse);
+  const first = withStylus.segments[0].width / rawStylus.segments[0].width;
+  const last = withStylus.segments.at(-1).width / rawStylus.segments.at(-1).width;
+  log('stylus width factor — start:', first.toFixed(3), ' end:', last.toFixed(3),
+      ' (light to heavy, so end > start:', last > first, ')');
 
   const blob = await toPng(commands, { padding: 0.08, color: '#12130f', scale: 2 });
   const bmp = await createImageBitmap(blob);

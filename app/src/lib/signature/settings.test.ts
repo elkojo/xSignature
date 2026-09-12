@@ -35,7 +35,7 @@ describe('loadSettings', () => {
 
   it('round-trips what was saved', () => {
     const storage = fakeStorage();
-    const settings = { faceId: 'great-vibes', sizeId: 'large' as const, ink: '#7a2230' };
+    const settings = { faceId: 'great-vibes', sizeId: 'large' as const, ink: '#7a2230', flourish: true };
     saveSettings(settings, storage);
     expect(loadSettings(storage)).toEqual(settings);
   });
@@ -63,6 +63,15 @@ describe('loadSettings', () => {
     expect(loadSettings(storage).ink).toBe('#aabbcc');
   });
 
+  it('treats anything but a stored true as no underline', () => {
+    // A stray string or number must not switch a decoration on; only the
+    // value this app wrote counts.
+    for (const raw of ['"yes"', '1', 'null', '"true"']) {
+      expect(loadSettings(fakeStorage(JSON.stringify({ flourish: JSON.parse(raw) }))).flourish).toBe(false);
+    }
+    expect(loadSettings(fakeStorage(JSON.stringify({ flourish: true }))).flourish).toBe(true);
+  });
+
   it('survives corrupt JSON', () => {
     expect(loadSettings(fakeStorage('{not json'))).toEqual(DEFAULT_SETTINGS);
   });
@@ -76,9 +85,9 @@ describe('loadSettings', () => {
   it('stores no name and no strokes', () => {
     // The promise: the shape of the pen, never what was written with it.
     const storage = fakeStorage();
-    saveSettings({ faceId: 'caveat', sizeId: 'small', ink: '#12130f' }, storage);
+    saveSettings({ faceId: 'caveat', sizeId: 'small', ink: '#12130f', flourish: true }, storage);
     const stored = JSON.parse(storage.read()!);
-    expect(Object.keys(stored).sort()).toEqual(['faceId', 'ink', 'sizeId']);
+    expect(Object.keys(stored).sort()).toEqual(['faceId', 'flourish', 'ink', 'sizeId']);
   });
 });
 

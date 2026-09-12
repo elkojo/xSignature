@@ -17,6 +17,7 @@ import { parse } from 'opentype.js';
 
 import { boundsHeight, boundsWidth, pathBounds } from '../src/lib/signature/export/bounds';
 import { toSvg } from '../src/lib/signature/export/svg';
+import { underlinePath } from '../src/lib/signature/flourish/underline';
 import { textToPath } from '../src/lib/signature/type/text-to-path';
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('-'));
@@ -27,7 +28,11 @@ const fontSize = 120;
 const ttf = fileURLToPath(new URL(`../src/lib/signature/fonts/${fontFile}`, import.meta.url));
 const font = parse(readFileSync(ttf).buffer);
 
-const commands = textToPath(font, text, { fontSize });
+const signature = textToPath(font, text, { fontSize });
+const withFlourish = process.argv.includes('--flourish');
+const signatureBox = pathBounds(signature);
+const commands =
+  withFlourish && signatureBox ? [...signature, ...underlinePath(signatureBox)] : signature;
 const svg = toSvg(commands, { padding: 0.08, color: '#10201a' });
 
 if (!svg) {

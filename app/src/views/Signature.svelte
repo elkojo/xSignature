@@ -19,6 +19,7 @@
   import { downloadBlob, downloadText, fileNameFor } from '../lib/signature/download';
   import { boundsHeight, boundsWidth, pathBounds } from '../lib/signature/export/bounds';
   import { pngSize, toPng } from '../lib/signature/export/raster';
+  import { underlinePath } from '../lib/signature/flourish/underline';
   import { toSvg } from '../lib/signature/export/svg';
   import type { PathCommand } from '../lib/signature/path';
   import { loadSettings, saveSettings } from '../lib/signature/settings';
@@ -54,6 +55,7 @@
   let hasStrokes = $state(false);
   /** True once a stylus has reported pressure that actually varies. */
   let usingPressure = $state(false);
+  let flourish = $state(stored.flourish);
   let faceId = $state(stored.faceId);
   let sizeId = $state(stored.sizeId);
   let ink = $state(stored.ink);
@@ -91,7 +93,7 @@
   });
 
   $effect(() => {
-    saveSettings({ faceId, sizeId, ink });
+    saveSettings({ faceId, sizeId, ink, flourish });
   });
 
   // The pad lives as long as its canvas, and only as long as its canvas.
@@ -151,12 +153,24 @@
 
   const trimmed = $derived(name.trim());
 
-  const commands = $derived<PathCommand[]>(
+  /** The signature itself, before anything is added under it. */
+  const signature = $derived<PathCommand[]>(
     mode === 'draw'
       ? drawn
       : font && trimmed
         ? textToPath(font, trimmed, { fontSize: size.fontSize })
         : [],
+  );
+
+  // Measured against the signature alone, then appended. Deriving the flourish
+  // from bounds that already included it would make it grow every time it was
+  // recomputed.
+  const signatureBounds = $derived(pathBounds(signature));
+
+  const commands = $derived<PathCommand[]>(
+    flourish && signatureBounds
+      ? [...signature, ...underlinePath(signatureBounds)]
+      : signature,
   );
 
   // A face asked for a glyph it lacks draws an empty box and reports nothing.
@@ -402,6 +416,34 @@
           </div>
 
           {/if}
+
+          <div class="field">
+            <span class="field-label">Underline</span>
+            <div class="choice-row">
+              <button
+                type="button"
+                class="choice"
+                class:selected={!flourish}
+                aria-pressed={!flourish}
+                onclick={() => (flourish = false)}
+              >
+                None
+              </button>
+              <button
+                type="button"
+                class="choice"
+                class:selected={flourish}
+                aria-pressed={flourish}
+                onclick={() => (flourish = true)}
+              >
+                Flourish
+              </button>
+            </div>
+            <p class="field-help">
+              A drawn stroke rather than a ruled line: thin at both ends, heavier where a hand
+              would bear down, and lifting away at the finish.
+            </p>
+          </div>
 
           <div class="field">
             <span class="field-label">Ink</span>

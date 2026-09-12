@@ -4,17 +4,19 @@ import { DEFAULT_INK, DEFAULT_SIZE_ID, normalizeHex, sizeById, type SizeId } fro
 /**
  * The only thing this app remembers.
  *
- * A face, a size and an ink — the shape of the pen, not what was written with
- * it. The name typed and the strokes drawn are never stored, not here and not
- * anywhere else: they exist while the tab is open and then they are gone.
+ * A face, a size, an ink, and whether the underline is on — the shape of the
+ * pen, not what was written with it. The name typed and the strokes drawn are
+ * never stored, not here and not anywhere else: they exist while the tab is
+ * open and then they are gone.
  *
- * Kept in localStorage rather than IndexedDB because it is three short strings
- * and losing them costs three clicks.
+ * Kept in localStorage rather than IndexedDB because it is a handful of short
+ * values and losing them costs a few clicks.
  */
 export interface Settings {
   readonly faceId: string;
   readonly sizeId: SizeId;
   readonly ink: string;
+  readonly flourish: boolean;
 }
 
 const KEY = 'xsignature.settings';
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   faceId: DEFAULT_FACE_ID,
   sizeId: DEFAULT_SIZE_ID,
   ink: DEFAULT_INK,
+  flourish: false,
 };
 
 /**
@@ -62,8 +65,9 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | undefined = saf
       ? (stored.sizeId as SizeId)
       : DEFAULT_SIZE_ID;
   const ink = (typeof stored.ink === 'string' && normalizeHex(stored.ink)) || DEFAULT_INK;
+  const flourish = stored.flourish === true;
 
-  return { faceId, sizeId, ink };
+  return { faceId, sizeId, ink, flourish };
 }
 
 export function saveSettings(

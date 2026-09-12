@@ -16,6 +16,7 @@
 
   import { createPad, fitPad, inkFrom, padHasPressure, undoStroke } from '../lib/signature/draw/pad';
   import { outlineInk } from '../lib/signature/draw/outline';
+  import { clipboardCanTakeImages, copyImage } from '../lib/signature/clipboard';
   import { downloadBlob, downloadText, fileNameFor } from '../lib/signature/download';
   import { boundsHeight, boundsWidth, pathBounds } from '../lib/signature/export/bounds';
   import { pngSize, toPng } from '../lib/signature/export/raster';
@@ -30,7 +31,20 @@
   import { textToPath } from '../lib/signature/type/text-to-path';
 
   const PADDING = 0.08;
-  const SCALE = 2;
+
+  /**
+   * What the PNG comes out as. The multiples are for "bigger, please"; the
+   * preset is for a slot of a known size, which is what an email footer or a
+   * form field actually is.
+   */
+  const OUTPUTS = [
+    { id: '1x', label: '1×', scale: 1 },
+    { id: '2x', label: '2×', scale: 2 },
+    { id: '4x', label: '4×', scale: 4 },
+    { id: 'preset', label: '800 × 240', fit: { width: 800, height: 240 } },
+  ] as const;
+
+  type OutputId = (typeof OUTPUTS)[number]['id'];
 
   const stored = loadSettings();
 
@@ -56,6 +70,23 @@
   /** True once a stylus has reported pressure that actually varies. */
   let usingPressure = $state(false);
   let flourish = $state(stored.flourish);
+  /**
+   * The three panels, and which of them the reader is looking at.
+   *
+   * xNotary's stepper shows one panel at a time because each of its steps
+   * depends on the last: you cannot review a fingerprint before there is a
+   * file. Nothing here works that way — the name, the face and the size are
+   * all adjusted against the same live preview, and hiding two of them behind
+   * a wizard would mean clicking back and forth to change a colour. So all
+   * three are on the page, and the stepper becomes what it actually is here: an
+   * index of where you are in it, and a way to get somewhere else.
+   */
+  let panels = $state<(HTMLElement | null)[]>([null, null, null]);
+  let activeStep = $state(0);
+
+  let outputId = $state<OutputId>('2x');
+  let opaque = $state(false);
+  let copied = $state('');
   let faceId = $state(stored.faceId);
   let sizeId = $state(stored.sizeId);
   let ink = $state(stored.ink);
@@ -69,6 +100,17 @@
   let fontError = $state('');
   let saving = $state(false);
   let saveError = $state('');
+
+  const output = $derived(OUTPUTS.find((o) => o.id === outputId) ?? OUTPUTS[1]);
+  const canCopy = clipboardCanTakeImages();
+
+  /** One description of the PNG, so the preview, the save and the copy agree. */
+  const pngOptions = $derived({
+    padding: PADDING,
+    color: ink,
+    ...('scale' in output ? { scale: output.scale } : { fit: output.fit }),
+    ...(opaque ? { background: '#ffffff' } : {}),
+  });
 
   const face = $derived(faceById(faceId) ?? FACES[0]);
   const size = $derived(sizeById(sizeId));
@@ -151,6 +193,75 @@
     refreshDrawing();
   }
 
+  /**
+   * Ctrl+Z, or Cmd+Z, undoes the last stroke.
+   *
+   * The only shortcut here, and only while drawing. Claiming keys an app does
+   * not need is a good way to break someone's browser habits; undo is the one
+   * people will reach for without thinking, because every other drawing
+   * surface they have used has it.
+   *
+   * Shift+Ctrl+Z is left alone rather than swallowed: that is redo everywhere
+   * else, and this has none, so it should do nothing rather than the opposite
+   * of what was asked.
+   */
+  /** Whichever panel has most recently passed under the top bar. */
+  function updateActiveStep() {
+    // At the very bottom, the last panel is what you are reading whether or not
+    // it ever reached the top of the window — a short final section cannot be
+    // scrolled up any further, so measuring its position would leave the step
+    // before it marked for good.
+    const remaining = document.documentElement.scrollHeight - scrollY - innerHeight;
+    if (remaining < 80) {
+      activeStep = panels.length - 1;
+      return;
+    }
+
+    // Comfortably below the sticky header, so a panel counts as current once
+    // its heading is properly on screen rather than grazing the bar.
+    const line = 140;
+    let current = 0;
+    panels.forEach((element, index) => {
+      if (element && element.getBoundingClientRect().top <= line) current = index;
+    });
+    activeStep = current;
+  }
+
+  function goToStep(index: number) {
+    panels[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Confirmation of a copy describes the file as it was at that moment. Once
+  // the signature changes it is about something that no longer exists, so it
+  // goes rather than sitting there reassuring the reader about the wrong thing.
+  $effect(() => {
+    void commands.length;
+    copied = '';
+  });
+
+  // Measure once the panels exist, and again whenever the page's height changes
+  // under us. A browser restores the scroll position on reload, so the first
+  // measurement cannot wait for someone to scroll; and showing a preview or a
+  // notice moves every panel below it without any scrolling at all.
+  $effect(() => {
+    void commands.length;
+    void mode;
+    updateActiveStep();
+  });
+
+  function onKeydown(event: KeyboardEvent) {
+    if (mode !== 'draw' || !hasStrokes) return;
+    if (event.key !== 'z' && event.key !== 'Z') return;
+    if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
+
+    // Never take the key away from a field someone is typing in.
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('input, textarea, [contenteditable]')) return;
+
+    event.preventDefault();
+    undoLast();
+  }
+
   const trimmed = $derived(name.trim());
 
   /** The signature itself, before anything is added under it. */
@@ -184,9 +295,7 @@
   // spaces draws nothing, and there is no meaningful size for nothing.
   const bounds = $derived(pathBounds(commands));
   const svg = $derived(bounds ? toSvg(commands, { padding: PADDING, color: ink }) : null);
-  const png = $derived(
-    bounds ? pngSize(commands, { padding: PADDING, color: ink, scale: SCALE }) : null,
-  );
+  const png = $derived(bounds ? pngSize(commands, pngOptions) : null);
 
   function pickHex(value: string) {
     hexDraft = value;
@@ -206,8 +315,26 @@
     saving = true;
     saveError = '';
     try {
-      const blob = await toPng(commands, { padding: PADDING, color: ink, scale: SCALE });
+      const blob = await toPng(commands, pngOptions);
       if (blob) downloadBlob(blob, fileNameFor(mode === 'draw' ? '' : trimmed, 'png'));
+    } catch (e) {
+      saveError = e instanceof Error ? e.message : String(e);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function copyPng() {
+    if (!bounds) return;
+    saving = true;
+    saveError = '';
+    copied = '';
+    try {
+      const blob = await toPng(commands, pngOptions);
+      if (!blob) return;
+      const result = await copyImage(blob);
+      if (result.ok) copied = 'Copied to the clipboard.';
+      else saveError = result.reason;
     } catch (e) {
       saveError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -219,6 +346,8 @@
     if (svg) downloadText(svg, fileNameFor(mode === 'draw' ? '' : trimmed, 'svg'), 'image/svg+xml');
   }
 </script>
+
+<svelte:window onkeydown={onKeydown} onscroll={updateActiveStep} onresize={updateActiveStep} />
 
 <section class="product-view">
   <div class="workspace">
@@ -236,12 +365,19 @@
     <div class="flow-shell">
       <div class="flow-main">
         <div class="stepper">
-          <button class="step active" disabled>1 Create</button>
-          <button class="step" class:active={!!bounds} disabled>2 Style</button>
-          <button class="step" class:active={!!bounds} disabled>3 Export</button>
+          {#each ['1 Create', '2 Style', '3 Export'] as label, index}
+            <button
+              class="step"
+              class:active={activeStep === index}
+              aria-current={activeStep === index ? 'step' : undefined}
+              onclick={() => goToStep(index)}
+            >
+              {label}
+            </button>
+          {/each}
         </div>
 
-        <div class="flow-panel">
+        <div class="flow-panel" bind:this={panels[0]}>
           <h2 class="panel-title">Type a name, or draw one</h2>
           <p class="panel-copy">
             Either way the result becomes the same kind of outline, so the PNG and the SVG are the
@@ -356,7 +492,7 @@
               <span>
                 Ink <strong>{Math.round(boundsWidth(bounds))} × {Math.round(boundsHeight(bounds))}</strong>
               </span>
-              <span>PNG <strong>{png.width} × {png.height}</strong> at {SCALE}×</span>
+              <span>PNG <strong>{png.width} × {png.height}</strong></span>
               <span>SVG <strong>{((svg?.length ?? 0) / 1024).toFixed(1)} kB</strong> vector</span>
             </div>
           {/if}
@@ -370,7 +506,7 @@
           {/if}
         </div>
 
-        <div class="flow-panel">
+        <div class="flow-panel" bind:this={panels[1]}>
           <h2 class="panel-title">Style it</h2>
           <p class="panel-copy">
             {mode === 'type'
@@ -486,7 +622,7 @@
           </div>
         </div>
 
-        <div class="flow-panel">
+        <div class="flow-panel" bind:this={panels[2]}>
           <h2 class="panel-title">Export it</h2>
           <p class="panel-copy">
             Both files are drawn from the same outlines, so they are the same picture. The PNG has
@@ -496,12 +632,73 @@
               : 'at any size, without turning into a blurry bitmap'}.
           </p>
 
+          <div class="field">
+            <span class="field-label">PNG size</span>
+            <div class="choice-row">
+              {#each OUTPUTS as option}
+                <button
+                  type="button"
+                  class="choice"
+                  class:selected={option.id === outputId}
+                  aria-pressed={option.id === outputId}
+                  onclick={() => ((outputId = option.id), (copied = ''))}
+                >
+                  {option.label}
+                </button>
+              {/each}
+            </div>
+            <p class="field-help">
+              The multiples enlarge the signature as it is. The preset fits it inside a box of
+              exactly that many pixels, centred, keeping its proportions — for a slot whose size is
+              already decided.
+            </p>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Background</span>
+            <div class="choice-row">
+              <button
+                type="button"
+                class="choice"
+                class:selected={!opaque}
+                aria-pressed={!opaque}
+                onclick={() => ((opaque = false), (copied = ''))}
+              >
+                Transparent
+              </button>
+              <button
+                type="button"
+                class="choice"
+                class:selected={opaque}
+                aria-pressed={opaque}
+                onclick={() => ((opaque = true), (copied = ''))}
+              >
+                White
+              </button>
+            </div>
+            <p class="field-help">
+              Transparent is what you usually want. Choose white for the tools that draw an alpha
+              channel as a black rectangle. The SVG is unaffected either way.
+            </p>
+          </div>
+
           <div class="flow-actions">
-            <button class="button ghost-dark" disabled={!svg} onclick={saveSvg}>Save SVG</button>
+            <span class="action-group">
+              <button class="button ghost-dark" disabled={!svg} onclick={saveSvg}>Save SVG</button>
+              {#if canCopy}
+                <button class="button ghost-dark" disabled={!bounds || saving} onclick={copyPng}>
+                  Copy PNG
+                </button>
+              {/if}
+            </span>
             <button class="button dark" disabled={!bounds || saving} onclick={savePng}>
               {saving ? 'Rendering…' : 'Save PNG'}
             </button>
           </div>
+
+          {#if copied}
+            <div class="notice ok">{copied}</div>
+          {/if}
 
           {#if saveError}
             <div class="notice bad"><strong>Could not make the PNG.</strong> {saveError}</div>

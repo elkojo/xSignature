@@ -222,8 +222,15 @@
 }
 
 .swatch.selected {
-  outline: 2px solid var(--green);
-  outline-offset: 2px;
+  /*
+   * A ring drawn with box-shadow rather than outline, deliberately: outline is
+   * what :focus-visible uses, and a swatch that is both selected and focused
+   * would otherwise show one ring doing two jobs. Keyboard users need to see
+   * which swatch they are on, not only which one is chosen.
+   */
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px var(--green);
 }
 
 .hex-row {
@@ -382,4 +389,78 @@
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/*
+ * The secondary actions, kept together.
+ *
+ * .flow-actions spreads its children apart, which reads correctly with two
+ * buttons and wrongly with three — the middle one ends up floating. Grouping
+ * keeps "go back / do something else" on the left and the action that finishes
+ * the job on the right, which is the arrangement the rest of the app uses.
+ */
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .flow-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .action-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .action-group .button,
+  .flow-actions > .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .mode-tabs {
+    display: flex;
+    width: 100%;
+  }
+
+  .mode-tab {
+    flex: 1;
+  }
+
+  .choice-row {
+    gap: 6px;
+  }
+
+  .ink-facts {
+    gap: 4px 12px;
+    font-size: 12.5px;
+  }
+}
+
+/*
+ * The stepper is navigation here, not a disabled progress read-out, so it has
+ * to look like something you can press.
+ */
+.stepper .step {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/*
+ * Room for the sticky top bar when a panel is scrolled to.
+ *
+ * Without this the stepper takes you to a heading that is sitting underneath
+ * the header, which looks like the click went to the wrong place.
+ */
+.flow-panel {
+  scroll-margin-top: 92px;
 }

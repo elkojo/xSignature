@@ -133,3 +133,42 @@ describe('pngSize', () => {
     expect(size.height).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('pngSize, fitted to a box', () => {
+  // The shape is 60 wide and 30 tall before padding: twice as wide as it is
+  // tall, so it runs out of width first in a square box.
+  const opts = { padding: 0, color: '#000' } as const;
+
+  it('produces exactly the box it was asked for', () => {
+    const size = pngSize(shape, { ...opts, fit: { width: 800, height: 240 } })!;
+    expect(size).toEqual({ width: 800, height: 240 });
+  });
+
+  it('fits by whichever edge runs out first, rather than stretching', () => {
+    // A wide signature in a square box is limited by width; the leftover is
+    // vertical space, not distortion.
+    const wide = pngSize(shape, { ...opts, fit: { width: 400, height: 400 } })!;
+    expect(wide).toEqual({ width: 400, height: 400 });
+  });
+
+  it('ignores scale when a box is given', () => {
+    const a = pngSize(shape, { ...opts, fit: { width: 800, height: 240 }, scale: 4 })!;
+    const b = pngSize(shape, { ...opts, fit: { width: 800, height: 240 } })!;
+    expect(a).toEqual(b);
+  });
+
+  it('rounds a fractional box to whole pixels', () => {
+    const size = pngSize(shape, { ...opts, fit: { width: 800.6, height: 239.4 } })!;
+    expect(size).toEqual({ width: 801, height: 239 });
+  });
+
+  it('never returns a zero-sized canvas', () => {
+    const size = pngSize(shape, { ...opts, fit: { width: 0, height: 0 } })!;
+    expect(size.width).toBeGreaterThanOrEqual(1);
+    expect(size.height).toBeGreaterThanOrEqual(1);
+  });
+
+  it('is null when there is no ink', () => {
+    expect(pngSize([], { ...opts, fit: { width: 800, height: 240 } })).toBeNull();
+  });
+});

@@ -24,16 +24,10 @@ export function clipboardCanTakeImages(): boolean {
   );
 }
 
-export async function copyImage(blob: Blob): Promise<CopyResult> {
-  if (!clipboardCanTakeImages()) {
-    return {
-      ok: false,
-      reason: 'This browser cannot put images on the clipboard. Save the file instead.',
-    };
-  }
-
+/** One attempt at a clipboard write, with the failures turned into sentences. */
+async function write(entries: Record<string, Blob>): Promise<CopyResult> {
   try {
-    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+    await navigator.clipboard.write([new ClipboardItem(entries)]);
     return { ok: true };
   } catch (cause) {
     // NotAllowedError covers both a denied permission and a click the browser
@@ -47,4 +41,46 @@ export async function copyImage(blob: Blob): Promise<CopyResult> {
     }
     return { ok: false, reason: 'The copy did not go through. Save the file instead.' };
   }
+}
+
+export async function copyImage(blob: Blob): Promise<CopyResult> {
+  if (!clipboardCanTakeImages()) {
+    return {
+      ok: false,
+      reason: 'This browser cannot put images on the clipboard. Save the file instead.',
+    };
+  }
+
+  return write({ [blob.type]: blob });
+}
+
+/**
+ * Put the SVG on the clipboard as both a picture and its own source.
+ *
+ * One copy, two audiences, and no way to know in advance which one is pasting:
+ * a design tool wants `image/svg+xml` and will place the vector; an editor, a
+ * template or a content field wants the markup as text. A clipboard item can
+ * carry both at once and let whatever receives it choose, which is better than
+ * asking the user to pick a flavour before they know where it is going.
+ *
+ * Browsers disagree about the image flavour — it was refused outright not long
+ * ago — so a refusal falls back to the text alone rather than failing. Markup
+ * on the clipboard is still a useful thing to have; nothing is worse than
+ * before.
+ */
+export async function copySvg(markup: string): Promise<CopyResult> {
+  if (!clipboardCanTakeImages()) {
+    return {
+      ok: false,
+      reason: 'This browser cannot write to the clipboard. Save the file instead.',
+    };
+  }
+
+  const both = await write({
+    'image/svg+xml': new Blob([markup], { type: 'image/svg+xml' }),
+    'text/plain': new Blob([markup], { type: 'text/plain' }),
+  });
+  if (both.ok) return both;
+
+  return write({ 'text/plain': new Blob([markup], { type: 'text/plain' }) });
 }

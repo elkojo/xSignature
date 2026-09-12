@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { clipboardCanTakeImages, copyImage } from './clipboard';
+import { clipboardCanTakeImages, copyImage, copySvg } from './clipboard';
 
 const original = {
   navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
@@ -78,5 +78,51 @@ describe('copyImage', () => {
       throw new Error('something else entirely');
     });
     await expect(copyImage(png)).resolves.toMatchObject({ ok: false });
+  });
+});
+
+describe('copySvg', () => {
+  const markup = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L9 9"/></svg>';
+
+  it('offers the picture and the markup together', async () => {
+    // Whoever pastes gets to choose: a design tool takes the vector, an editor
+    // takes the source. Asking the user to pick first would mean asking before
+    // they know where it is going.
+    const write = vi.fn(async () => {});
+    withClipboard(write);
+    expect(await copySvg(markup)).toEqual({ ok: true });
+
+    const [[items]] = write.mock.calls as unknown as [[{ items: Record<string, Blob> }[]]];
+    expect(Object.keys(items[0].items).sort()).toEqual(['image/svg+xml', 'text/plain']);
+  });
+
+  it('falls back to the markup alone when the picture is refused', async () => {
+    // Browsers have disagreed about image/svg+xml. Text on the clipboard is
+    // still worth having, so a refusal must not come back as a failure.
+    let attempt = 0;
+    const write = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) throw Object.assign(new Error('no'), { name: 'NotAllowedError' });
+    });
+    withClipboard(write);
+
+    expect(await copySvg(markup)).toEqual({ ok: true });
+    expect(write).toHaveBeenCalledTimes(2);
+    const second = write.mock.calls[1] as unknown as [{ items: Record<string, Blob> }[]];
+    expect(Object.keys(second[0][0].items)).toEqual(['text/plain']);
+  });
+
+  it('gives up honestly when neither flavour is taken', async () => {
+    withClipboard(async () => {
+      throw Object.assign(new Error('no'), { name: 'NotAllowedError' });
+    });
+    const result = await copySvg(markup);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason).toMatch(/save the file instead/i);
+  });
+
+  it('says so where there is no clipboard at all', async () => {
+    withClipboard(null);
+    await expect(copySvg(markup)).resolves.toMatchObject({ ok: false });
   });
 });

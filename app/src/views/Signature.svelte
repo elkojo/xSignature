@@ -16,7 +16,7 @@
 
   import { createPad, fitPad, inkFrom, padHasPressure, undoStroke } from '../lib/signature/draw/pad';
   import { outlineInk } from '../lib/signature/draw/outline';
-  import { clipboardCanTakeImages, copyImage } from '../lib/signature/clipboard';
+  import { clipboardCanTakeImages, copyImage, copySvg } from '../lib/signature/clipboard';
   import { downloadBlob, downloadText, fileNameFor } from '../lib/signature/download';
   import { boundsHeight, boundsWidth, pathBounds } from '../lib/signature/export/bounds';
   import { pngSize, toPng } from '../lib/signature/export/raster';
@@ -99,7 +99,14 @@
   let font = $state<Awaited<ReturnType<typeof loadFace>> | null>(null);
   let fontError = $state('');
   let saving = $state(false);
-  let saveError = $state('');
+  /**
+   * Whatever went wrong last, as a heading and a sentence.
+   *
+   * Both parts are set where the failure happens. A fixed heading was wrong the
+   * moment a second action could fail: a refused SVG copy reported "Could not
+   * make the PNG", which is a confident answer to a question nobody asked.
+   */
+  let problem = $state<{ title: string; detail: string } | null>(null);
 
   const output = $derived(OUTPUTS.find((o) => o.id === outputId) ?? OUTPUTS[1]);
   const canCopy = clipboardCanTakeImages();
@@ -313,12 +320,12 @@
   async function savePng() {
     if (!bounds) return;
     saving = true;
-    saveError = '';
+    problem = null;
     try {
       const blob = await toPng(commands, pngOptions);
       if (blob) downloadBlob(blob, fileNameFor(mode === 'draw' ? '' : trimmed, 'png'));
     } catch (e) {
-      saveError = e instanceof Error ? e.message : String(e);
+      problem = { title: 'Could not make the PNG.', detail: e instanceof Error ? e.message : String(e) };
     } finally {
       saving = false;
     }
@@ -327,23 +334,34 @@
   async function copyPng() {
     if (!bounds) return;
     saving = true;
-    saveError = '';
+    problem = null;
     copied = '';
     try {
       const blob = await toPng(commands, pngOptions);
       if (!blob) return;
       const result = await copyImage(blob);
-      if (result.ok) copied = 'Copied to the clipboard.';
-      else saveError = result.reason;
+      if (result.ok) copied = `PNG copied — ${png?.width} × ${png?.height}, ready to paste.`;
+      else problem = { title: 'Could not copy the PNG.', detail: result.reason };
     } catch (e) {
-      saveError = e instanceof Error ? e.message : String(e);
+      problem = { title: 'Could not copy the PNG.', detail: e instanceof Error ? e.message : String(e) };
     } finally {
       saving = false;
     }
   }
 
+  async function copySvgMarkup() {
+    if (!svg) return;
+    problem = null;
+    copied = '';
+    const result = await copySvg(svg);
+    if (result.ok) copied = 'SVG copied — paste as a picture, or as markup into an editor.';
+    else problem = { title: 'Could not copy the SVG.', detail: result.reason };
+  }
+
   function saveSvg() {
-    if (svg) downloadText(svg, fileNameFor(mode === 'draw' ? '' : trimmed, 'svg'), 'image/svg+xml');
+    if (!svg) return;
+    problem = null;
+    downloadText(svg, fileNameFor(mode === 'draw' ? '' : trimmed, 'svg'), 'image/svg+xml');
   }
 </script>
 
@@ -682,26 +700,37 @@
             </p>
           </div>
 
+          <!--
+            Saving is the main path and copying the alternative, so the weight
+            separates those rather than separating the two formats. Within each
+            pair SVG and PNG look identical, because here they are equal
+            choices rather than a main one and an extra.
+          -->
           <div class="flow-actions">
             <span class="action-group">
-              <button class="button ghost-dark" disabled={!svg} onclick={saveSvg}>Save SVG</button>
-              {#if canCopy}
+              <button class="button dark" disabled={!svg} onclick={saveSvg}>Save SVG</button>
+              <button class="button dark" disabled={!bounds || saving} onclick={savePng}>
+                {saving ? 'Rendering…' : 'Save PNG'}
+              </button>
+            </span>
+            {#if canCopy}
+              <span class="action-group">
+                <button class="button ghost-dark" disabled={!svg} onclick={copySvgMarkup}>
+                  Copy SVG
+                </button>
                 <button class="button ghost-dark" disabled={!bounds || saving} onclick={copyPng}>
                   Copy PNG
                 </button>
-              {/if}
-            </span>
-            <button class="button dark" disabled={!bounds || saving} onclick={savePng}>
-              {saving ? 'Rendering…' : 'Save PNG'}
-            </button>
+              </span>
+            {/if}
           </div>
 
           {#if copied}
             <div class="notice ok">{copied}</div>
           {/if}
 
-          {#if saveError}
-            <div class="notice bad"><strong>Could not make the PNG.</strong> {saveError}</div>
+          {#if problem}
+            <div class="notice bad"><strong>{problem.title}</strong> {problem.detail}</div>
           {/if}
         </div>
 

@@ -406,6 +406,7 @@
 }
 
 @media (max-width: 560px) {
+  /* Two rows of two: saves above, copies below, each pair sharing a width. */
   .flow-actions {
     align-items: stretch;
     flex-direction: column;

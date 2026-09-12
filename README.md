@@ -3,18 +3,19 @@
 Type your name in a handwriting face, or draw it freehand, and export a clean
 transparent PNG or a true vector SVG. Everything happens in the browser.
 
-xSignature is a module of [xNotary](https://xnotary.digital). This repository is
-the module developed on its own, with a minimal dev shell around it so it runs
-standalone; the module itself is `app/src/lib/signature/` and
-`app/src/views/Signature.svelte`, and those are the paths it occupies inside
-xNotary too.
+xSignature is a standalone app. It talks to no server and to no other
+application: the page loads, and from then on everything it does happens on your
+machine. It shares its design language and its privacy posture with
+[xNotary](https://xnotary.digital), and nothing else — no shared account, no
+shared storage, no traffic between them.
 
 ## What this is not
 
 xSignature produces a **picture of a signature**. It has no legal weight, no
 audit trail and no identity binding, and it is not an electronic signature in
 any regulatory sense. It is for letterheads, email footers, form fields and
-branding. To prove who signed a document, use xNotary's Signatures module.
+branding. If you need to prove who signed a document, you need a qualified
+electronic signature, which this is not.
 
 ## Running it
 
@@ -38,4 +39,4 @@ in `localStorage`.
 
 ## Licence
 
-AGPL-3.0-or-later, the same as xNotary. See [LICENSE](LICENSE).
+AGPL-3.0-or-later. See [LICENSE](LICENSE).

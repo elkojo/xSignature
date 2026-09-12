@@ -1,9 +1,8 @@
 /**
- * Dev-shell routing only.
- *
- * In xNotary this file already exists and carries the real nav; adding the
- * module there means one entry — `{ id: 'signature', label: 'Signature image' }`
- * — and one branch in App.svelte. Nothing else in the parent changes.
+ * Routing. One screen today, so this is nearly a formality — but the hash route
+ * is what makes `#/signature` a real address people can bookmark, and keeping
+ * the table here means adding a second screen never means touching App.svelte's
+ * markup.
  */
 export type View = 'signature';
 

@@ -1,9 +1,8 @@
 <script lang="ts">
   /**
-   * Dev shell. It exists so `npm run dev` shows the module inside the same
-   * chrome it will live in — top bar, paper surface, footer — and for no other
-   * reason. In xNotary this file is already written; the module is one import,
-   * one NAV entry and one `{:else if}` branch there.
+   * The shell: top bar, paper working surface, footer. It holds the chrome that
+   * is the same on every screen, and routes. Everything the app actually does
+   * lives in the view it renders.
    */
   import Signature from './views/Signature.svelte';
   import { NAV, ROUTES, type View } from './nav';

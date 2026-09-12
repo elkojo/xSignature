@@ -3,10 +3,10 @@
    * "Signature image" — make a picture of a signature, in three steps: create
    * it, style it, export it.
    *
-   * The module imports nothing from the notarization side. What it produces is
-   * an image file and nothing more; the notice below says so, and that notice
-   * is not decoration — it is the one thing on this screen that protects the
-   * rest of the product.
+   * The app is self-contained: it talks to no server and to no other app. What
+   * it produces is an image file and nothing more; the notice below says so,
+   * and that notice is not decoration — it is the one honest thing on a screen
+   * that could otherwise be mistaken for something with legal weight.
    *
    * The panels are the shell only at this point. Their controls arrive with the
    * path pipeline in lib/signature/, and the stepper starts moving with them.
@@ -44,18 +44,16 @@
         </div>
 
         <!--
-          The boundary between this module and xNotary's signing work. Read the
-          wording as load-bearing: it is what keeps a decorative image from
-          being mistaken for a qualified electronic signature. Inside xNotary
-          the link below is `go('attest')` rather than an absolute URL.
+          Read this wording as load-bearing: it is what keeps a decorative image
+          from being mistaken for a qualified electronic signature. It names the
+          limit and stops there — it sends nobody anywhere, because this app
+          reaches nothing outside itself.
         -->
         <div class="notice warn">
           <strong>This is an image, not an electronic signature.</strong>
-          It proves nothing about who made it — anyone with the file can put it on any document. To
-          prove who signed a document, use
-          <a href="https://xnotary.digital/#/attest" target="_blank" rel="noopener noreferrer">
-            Signatures</a
-          >.
+          It proves nothing about who made it — anyone who has the file can put it on any document.
+          Use it for letterheads, email footers and form fields, not as evidence that you signed
+          something.
         </div>
       </div>
 

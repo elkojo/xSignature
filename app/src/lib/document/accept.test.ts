@@ -26,15 +26,12 @@ describe('accept', () => {
   });
 
   it('trusts the bytes over the extension, so a mislabelled PDF is still stamped directly', () => {
-    // Worth being deliberate about: routing this through the converter would
-    // both cost the reader a large download and re-typeset a document that was
-    // already laid out.
+    // Re-typesetting a document that was already laid out would lose its
+    // layout for no reason.
     expect(accept('contract.txt', PDF_HEAD).route).toBe('stamp');
   });
 
   it('lays plain text out here, with nothing to download', () => {
-    // A .txt has no structure to lose, so sending it through a document
-    // converter would cost a large download and gain nothing.
     expect(accept('notes.txt', NOTHING)).toEqual({ route: 'text', format: 'Plain text' });
     expect(accept('server.LOG', NOTHING).route).toBe('text');
   });
@@ -44,24 +41,37 @@ describe('accept', () => {
     expect(accept('notes.markdown', NOTHING).route).toBe('text');
   });
 
-  it('routes documents with structure in them to the converter, naming the format', () => {
-    expect(accept('lease.docx', ZIP_HEAD)).toEqual({ route: 'convert', format: 'Word document' });
-    expect(accept('notes.odt', ZIP_HEAD).format).toBe('OpenDocument text');
-    expect(accept('terms.RTF', NOTHING).route).toBe('convert');
+  it('turns word processor formats away, and says what to do instead', () => {
+    // The important refusals: somebody dropping a .docx has every reason to
+    // expect it to work, and a bare "unsupported file" tells them nothing.
+    for (const name of ['lease.docx', 'memo.doc', 'notes.odt', 'terms.RTF']) {
+      const verdict = accept(name, ZIP_HEAD);
+      expect(verdict.route).toBe('reject');
+      expect(verdict.reason).toMatch(/PDF/);
+    }
+
+    expect(accept('lease.docx', ZIP_HEAD).reason).toMatch(/Save As or Print to PDF/);
+    expect(accept('notes.odt', ZIP_HEAD).reason).toMatch(/LibreOffice/);
   });
 
-  it('explains the refusal for things that look like documents but are not', () => {
-    const old = accept('memo.doc', NOTHING);
-    expect(old.route).toBe('reject');
-    expect(old.reason).toMatch(/\.docx or PDF/);
+  it('has no route that promises a conversion it cannot do', () => {
+    // There is no converter and there is not going to be one. A route that
+    // said otherwise would be a promise the app cannot keep.
+    const routes = ['lease.docx', 'a.odt', 'b.epub', 'c.html', 'd.tex', 'e.rst']
+      .map((name) => accept(name, ZIP_HEAD).route);
+    expect(new Set(routes)).toEqual(new Set(['reject']));
+  });
 
+  it('explains the refusal for things that are documents but not ones to sign', () => {
     expect(accept('budget.xlsx', ZIP_HEAD).reason).toMatch(/not documents to sign/);
+    expect(accept('deck.pptx', ZIP_HEAD).reason).toMatch(/not documents to sign/);
   });
 
   it('refuses anything else without pretending to know what it was', () => {
     const image = accept('scan.png', NOTHING);
     expect(image.route).toBe('reject');
     expect(image.format).toBe('.png');
+    expect(image.reason).toMatch(/PDFs, plain text and Markdown/);
 
     expect(accept('LICENSE', NOTHING).format).toBe('file');
   });

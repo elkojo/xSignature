@@ -414,8 +414,8 @@
           <h2 class="panel-title">1 · Choose a document</h2>
           <p class="panel-copy">
             A PDF can be stamped straight away. Plain text and Markdown are laid out here in a
-            moment. Word, OpenDocument and the rest carry formatting that has to be typeset
-            properly, which needs a converter this page does not yet have.
+            moment, on this device. Nothing else is read: a word processor's own Save As or Print
+            to PDF will do a better job of its formatting than anything this page could.
           </p>
 
           {#if verdict}
@@ -436,13 +436,6 @@
                 Set here with the fonts every PDF reader already has, so nothing was downloaded and
                 nothing was sent anywhere. It is a plain setting of the document rather than
                 typesetting — check it reads the way you want before signing it.
-              </div>
-            {:else if verdict.route === 'convert'}
-              <div class="notice">
-                <strong>Needs converting first.</strong>
-                {verdict.format} carries formatting that has to be laid out properly, which needs a
-                converter this page does not yet have. Until it does, open the file in whatever wrote
-                it and save it as a PDF.
               </div>
             {:else if verdict.route === 'reject'}
               <div class="notice bad"><strong>Cannot read this one.</strong> {verdict.reason}</div>
@@ -472,12 +465,12 @@
               <div>
                 <div class="file-icon" aria-hidden="true">PDF</div>
                 <strong>Drop a document here</strong>
-                <div class="drop-hint">or click to choose one</div>
+                <div class="drop-hint">or click to choose one — PDF, plain text or Markdown</div>
               </div>
               <input
                 bind:this={fileInput}
                 type="file"
-                accept=".pdf,.docx,.odt,.rtf,.md,.markdown,.txt,.html,.htm,.epub,.tex,.rst,.org,.adoc"
+                accept=".pdf,.txt,.text,.log,.md,.markdown"
                 onchange={(event) => void take(event.currentTarget.files?.[0])}
               />
             </label>

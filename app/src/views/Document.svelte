@@ -28,17 +28,23 @@
   } from '../lib/document/timestamp/authorities';
   import { applyDocTimeStamp, type Outgoing } from '../lib/document/timestamp/apply';
   import type { Timestamp } from '../lib/document/timestamp/response';
+  import { applyImageStamp } from '../lib/document/stamp/stamp';
+  import {
+    looksLikeJpeg,
+    looksLikePng,
+    readSignatureImage,
+    readSignatureSvg,
+    UnreadableSignature,
+    type Signature,
+  } from '../lib/document/signature/read';
+  import {
+    describeDpi,
+    pixelsNeededFor,
+    resolutionFor,
+  } from '../lib/document/signature/resolution';
   import { downloadBlob } from '../lib/signature/download';
-  import { pathBounds } from '../lib/signature/export/bounds';
-  import { layout } from '../lib/signature/export/layout';
-  import { toPathData, type PathCommand } from '../lib/signature/path';
-  import { INKS } from '../lib/signature/style';
-  import { DEFAULT_FACE_ID, FACES, faceById } from '../lib/signature/type/faces';
-  import { loadFace } from '../lib/signature/type/font';
-  import { textToPath } from '../lib/signature/type/text-to-path';
+  import { toPathData } from '../lib/signature/path';
 
-  /** The margin the signature keeps around its own ink, as on the other screen. */
-  const PADDING = 0.08;
   /** How wide the page preview is drawn, in CSS pixels. */
   const PREVIEW_WIDTH = 520;
 
@@ -114,42 +120,107 @@
 
   // ---- step 2: the signature ------------------------------------------------
 
-  let name = $state('');
-  let faceId = $state(DEFAULT_FACE_ID);
-  let ink = $state<string>(INKS[0].hex);
-  let commands = $state<PathCommand[]>([]);
+  /**
+   * The signature is made on the other screen and brought here.
+   *
+   * There was a second, cut-down signature builder on this screen once, which
+   * could type a name and nothing else. Taking it out removed the duplication
+   * and gained drawn signatures at the same time: whatever the signature screen
+   * can make — typed, drawn, any face, any ink — can be pasted here, because
+   * what travels is the finished file rather than the controls that made it.
+   */
+  let signature = $state<Signature | null>(null);
+  let signatureName = $state('');
+  let signatureError = $state('');
+  let signatureInput = $state<HTMLInputElement | null>(null);
+  let signatureOver = $state(false);
 
-  // The ink is measured once, here, and both the overlay and the stamp use
-  // these numbers — so what is dragged on screen is what lands on the page.
-  let box = $derived.by(() => {
-    const bounds = pathBounds(commands);
-    return bounds ? layout(bounds, { padding: PADDING }) : null;
-  });
+  /** The ink's own box, whichever flavour arrived. */
+  let box = $derived(
+    signature
+      ? { width: signature.width, height: signature.height }
+      : null,
+  );
 
-  let pathData = $derived(toPathData(commands));
+  let pathData = $derived(
+    signature?.kind === 'vector' ? toPathData(signature.commands) : '',
+  );
 
-  $effect(() => {
-    const face = faceById(faceId);
-    const text = name.trim();
-    if (!face || !text) {
-      commands = [];
-      return;
+  /** Take a signature from a file, a drop or a paste. */
+  async function takeSignature(file: File | Blob, name = ''): Promise<void> {
+    signatureError = '';
+    const bytes = new Uint8Array(await file.arrayBuffer());
+
+    try {
+      if (looksLikePng(bytes)) {
+        signature = readSignatureImage(bytes, 'image/png');
+      } else if (looksLikeJpeg(bytes)) {
+        signature = readSignatureImage(bytes, 'image/jpeg');
+      } else {
+        signature = readSignatureSvg(new TextDecoder().decode(bytes));
+      }
+      signatureName = name || (file instanceof File ? file.name : 'pasted signature');
+    } catch (cause) {
+      signature = null;
+      signatureName = '';
+      signatureError =
+        cause instanceof UnreadableSignature
+          ? cause.message
+          : 'That could not be read as a signature. A PNG or an SVG from the signature screen will work.';
+    }
+  }
+
+  /**
+   * Take whatever the clipboard is offering.
+   *
+   * An image flavour is preferred when there is one, because a paste carrying
+   * both is usually a picture with a filename attached as text. Failing that,
+   * text is tried as SVG markup — which is how a signature copied from the
+   * other screen arrives, since browsers disagree about carrying SVG as an
+   * image.
+   */
+  async function onPaste(event: ClipboardEvent): Promise<void> {
+    const items = [...(event.clipboardData?.items ?? [])];
+
+    const image = items.find((item) => item.type === 'image/png' || item.type === 'image/jpeg');
+    if (image) {
+      const file = image.getAsFile();
+      if (file) {
+        event.preventDefault();
+        await takeSignature(file, 'pasted image');
+        return;
+      }
     }
 
-    let current = true;
-    void loadFace(face)
-      .then((font) => {
-        // A face that arrives after the reader has moved on must not overwrite
-        // what they chose in the meantime.
-        if (current) commands = textToPath(font, text, { fontSize: 120 });
-      })
-      .catch(() => {
-        if (current) commands = [];
-      });
-    return () => {
-      current = false;
-    };
+    const text = event.clipboardData?.getData('text/plain')?.trim();
+    if (text?.startsWith('<svg') || text?.startsWith('<?xml')) {
+      event.preventDefault();
+      await takeSignature(new Blob([text]), 'pasted SVG');
+    }
+  }
+
+  /**
+   * A URL for showing the picture, made once per file and given back when it is
+   * replaced. Without the revoke every pasted signature leaks its bytes for as
+   * long as the page is open.
+   */
+  let rasterUrl = $state('');
+  $effect(() => {
+    if (signature?.kind !== 'raster') {
+      rasterUrl = '';
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([signature.bytes], { type: signature.type }));
+    rasterUrl = url;
+    return () => URL.revokeObjectURL(url);
   });
+
+  function clearSignature() {
+    signature = null;
+    signatureName = '';
+    signatureError = '';
+    if (signatureInput) signatureInput.value = '';
+  }
 
   // ---- step 3: placing it ---------------------------------------------------
 
@@ -304,7 +375,7 @@
   let saveError = $state('');
 
   async function save() {
-    if (!bytes || !rect || !box || commands.length === 0) return;
+    if (!bytes || !rect || !box || !signature) return;
     if (wantTimestamp && !endpoint) {
       customError = 'Enter a valid https address, or choose one of the authorities above.';
       return;
@@ -319,14 +390,29 @@
       // Re-open from the original bytes so that saving twice does not stamp a
       // document that was already stamped.
       const fresh = await openPdf(bytes);
-      applyStamp(fresh.doc, fresh.pages[page], {
-        page,
-        rect,
-        commands,
-        width: box.width,
-        height: box.height,
-        color: ink,
-      });
+
+      if (signature!.kind === 'vector') {
+        applyStamp(fresh.doc, fresh.pages[page], {
+          page,
+          rect,
+          commands: signature!.commands,
+          width: signature!.width,
+          height: signature!.height,
+          color: signature!.color,
+        });
+      } else {
+        const image =
+          signature!.type === 'image/png'
+            ? await fresh.doc.embedPng(signature!.bytes)
+            : await fresh.doc.embedJpg(signature!.bytes);
+        applyImageStamp(fresh.doc, fresh.pages[page], {
+          page,
+          rect,
+          image,
+          width: signature!.width,
+          height: signature!.height,
+        });
+      }
 
       const out = await fresh.doc.save();
 
@@ -371,7 +457,25 @@
     return `${base || 'document'}-signed.pdf`;
   }
 
-  let ready = $derived(Boolean(opened && rect && commands.length > 0));
+  let ready = $derived(Boolean(opened && rect && signature));
+
+  /**
+   * How the placed picture works out in dots per inch.
+   *
+   * Only meaningful for a raster: outlines have no resolution to run out of.
+   * Measured against the width it is actually placed at, so the answer changes
+   * as the size slider moves rather than being a property of the file alone.
+   */
+  let placedResolution = $derived.by(() => {
+    if (!signature || signature.kind !== 'raster' || !rect || !geometry) return null;
+    const view = displayedSize(geometry);
+    return resolutionFor(signature.width, rect.width * view.width);
+  });
+
+  let neededPixels = $derived.by(() => {
+    if (!rect || !geometry) return 0;
+    return pixelsNeededFor(rect.width * displayedSize(geometry).width);
+  });
 
   /** Where to draw the overlay, in preview pixels. */
   let overlay = $derived.by(() => {
@@ -394,6 +498,13 @@
     return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   }
 </script>
+
+<!--
+  Paste is caught on the window rather than on the drop zone, because a reader
+  who has just copied a signature will press Ctrl+V wherever they happen to be
+  looking, not after clicking a particular box first.
+-->
+<svelte:window onpaste={(event) => void onPaste(event)} />
 
 <section class="product-view">
   <div class="workspace">
@@ -479,58 +590,98 @@
 
         {#if opened}
           <div class="flow-panel">
-            <h2 class="panel-title">2 · Write the signature</h2>
+            <h2 class="panel-title">2 · Bring in a signature</h2>
             <p class="panel-copy">
-              The same outlines the signature screen makes, so what goes onto the page is a drawing
-              rather than a font the reader may not have.
+              Paste one with <kbd>Ctrl</kbd>+<kbd>V</kbd>, drop the file here, or choose it. Make
+              one on the <a href="#/signature">signature screen</a> first and copy or save it from
+              there — typed or drawn, either works.
             </p>
 
-            <div class="field">
-              <label for="document-name">Name</label>
-              <input
-                id="document-name"
-                class="input"
-                type="text"
-                autocomplete="off"
-                spellcheck="false"
-                bind:value={name}
-                placeholder="Ada Lovelace"
-              />
-            </div>
-
-            <div class="field">
-              <span class="field-label">Face</span>
-              <div class="face-grid">
-                {#each FACES as face}
-                  <button
-                    type="button"
-                    class="face-option"
-                    class:selected={faceId === face.id}
-                    onclick={() => (faceId = face.id)}
-                  >
-                    <strong>{face.name}</strong>
-                    <span>{face.note}</span>
-                  </button>
-                {/each}
+            {#if signature}
+              <div class="picked">
+                <div class="picked-name">{signatureName}</div>
+                <div class="picked-facts">
+                  {#if signature.kind === 'vector'}
+                    SVG · outlines · sharp at any size
+                  {:else}
+                    {signature.type === 'image/png' ? 'PNG' : 'JPEG'} · {signature.width}×{signature.height}
+                    {#if placedResolution} · about {describeDpi(placedResolution.dpi)} as placed{/if}
+                  {/if}
+                </div>
               </div>
-            </div>
 
-            <div class="field">
-              <span class="field-label">Ink</span>
-              <div class="swatches">
-                {#each INKS as colour}
-                  <button
-                    type="button"
-                    class="swatch"
-                    class:selected={ink === colour.hex}
-                    style="background: {colour.hex}"
-                    title={colour.name}
-                    aria-label={colour.name}
-                    onclick={() => (ink = colour.hex)}
-                  ></button>
-                {/each}
+              <div class="signature-preview" class:checks={signature.kind === 'raster'}>
+                {#if signature.kind === 'vector'}
+                  <svg viewBox="0 0 {signature.width} {signature.height}" aria-label="The signature">
+                    <path d={pathData} fill={signature.color} />
+                  </svg>
+                {:else}
+                  <img src={rasterUrl} alt="The signature" />
+                {/if}
               </div>
-            </div>
+
+              {#if signature.kind === 'raster' && !signature.hasAlpha}
+                <!--
+                  The one failure that looks fine on screen and wrong on paper:
+                  a JPEG has no transparency, so it lands as a solid rectangle
+                  over whatever the document says underneath it.
+                -->
+                <div class="notice bad">
+                  <strong>This picture has no transparent background.</strong>
+                  It will cover the document with a solid rectangle wherever it is placed. Use a PNG
+                  from the signature screen, which keeps its background transparent.
+                </div>
+              {:else if placedResolution?.sharpness === 'soft'}
+                <div class="notice warn">
+                  <strong>Small for the size it is placed at.</strong>
+                  About {describeDpi(placedResolution.dpi)} where it sits now, which will look soft
+                  in print. Make it smaller on the page, or copy it again at 4× from the signature
+                  screen — around {neededPixels.toLocaleString()} pixels wide would print cleanly
+                  here.
+                </div>
+              {/if}
+
+              <div class="action-group">
+                <button class="button secondary small" type="button" onclick={clearSignature}>
+                  Use a different signature
+                </button>
+              </div>
+            {:else}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <label
+                class="dropzone compact"
+                class:over={signatureOver}
+                ondragover={(event) => {
+                  event.preventDefault();
+                  signatureOver = true;
+                }}
+                ondragleave={() => (signatureOver = false)}
+                ondrop={(event) => {
+                  event.preventDefault();
+                  signatureOver = false;
+                  const file = event.dataTransfer?.files?.[0];
+                  if (file) void takeSignature(file);
+                }}
+              >
+                <div>
+                  <strong>Paste, drop or choose a signature</strong>
+                  <div class="drop-hint">PNG or SVG — from the signature screen or anywhere else</div>
+                </div>
+                <input
+                  bind:this={signatureInput}
+                  type="file"
+                  accept=".svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg"
+                  onchange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) void takeSignature(file);
+                  }}
+                />
+              </label>
+            {/if}
+
+            {#if signatureError}
+              <div class="notice bad"><strong>Cannot use that one.</strong> {signatureError}</div>
+            {/if}
           </div>
 
           <div class="flow-panel">
@@ -573,7 +724,7 @@
               {/if}
               <div class="sheet-stage" bind:this={previewHost}></div>
 
-              {#if overlay && commands.length > 0}
+              {#if overlay && signature}
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div
                   class="overlay"
@@ -584,19 +735,24 @@
                   onpointerdown={onPointerDown}
                   onkeydown={onOverlayKey}
                 >
-                  <svg viewBox="0 0 {box?.width} {box?.height}" aria-hidden="true">
-                    <path
-                      d={pathData}
-                      fill={ink}
-                      transform="translate({box?.translateX} {box?.translateY})"
-                    />
-                  </svg>
+                  {#if signature.kind === 'vector'}
+                    <!--
+                      No transform: toSvg bakes its offset into the path data,
+                      so what came back is already in the box the viewBox
+                      describes — the same space the stamp draws it in.
+                    -->
+                    <svg viewBox="0 0 {signature.width} {signature.height}" aria-hidden="true">
+                      <path d={pathData} fill={signature.color} />
+                    </svg>
+                  {:else}
+                    <img src={rasterUrl} alt="" />
+                  {/if}
                 </div>
               {/if}
             </div>
 
-            {#if commands.length === 0}
-              <div class="notice">Type a name above and it will appear on the page.</div>
+            {#if !signature}
+              <div class="notice">Bring in a signature above and it will appear on the page.</div>
             {/if}
 
             <div class="field timestamp-field">

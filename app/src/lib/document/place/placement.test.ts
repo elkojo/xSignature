@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  concat,
   displayedSize,
   fitInside,
   normalizeRotation,
   placementMatrix,
+  unitSquareToBox,
   type Matrix,
   type PageGeometry,
   type Rotation,
@@ -178,5 +180,46 @@ describe('placementMatrix', () => {
     expect(topLeft.x).toBeGreaterThanOrEqual(100);
     expect(topLeft.y).toBeLessThanOrEqual(250 + 842);
     expect(toDisplay(page, topLeft).x).toBeCloseTo(0, 9);
+  });
+});
+
+describe('concat and unitSquareToBox', () => {
+  const identity: Matrix = [1, 0, 0, 1, 0, 0];
+
+  it('leaves a matrix alone when combined with the identity', () => {
+    const m: Matrix = [2, 3, 4, 5, 6, 7];
+    expect(concat(identity, m)).toEqual(m);
+    expect(concat(m, identity)).toEqual(m);
+  });
+
+  it('applies the first matrix first', () => {
+    const shiftThenDouble = concat([1, 0, 0, 1, 10, 0], [2, 0, 0, 2, 0, 0]);
+    // (0,0) shifted to (10,0), then doubled, is (20,0) — not (10,0).
+    expect(apply(shiftThenDouble, 0, 0)).toEqual({ x: 20, y: 0 });
+  });
+
+  it('turns the image square into the box, top row first', () => {
+    const m = unitSquareToBox(100, 40);
+    // An image's own (0,1) is its top-left; in ink space that is (0,0).
+    expect(apply(m, 0, 1)).toEqual({ x: 0, y: 0 });
+    expect(apply(m, 1, 0)).toEqual({ x: 100, y: 40 });
+  });
+
+  it('puts an image exactly where outlines of the same size would go', () => {
+    // The property that matters: a pasted picture and a pasted outline of the
+    // same proportions land on the same spot on the same page.
+    const page = A4(90);
+    const rect = { x: 0.3, y: 0.6, width: 0.4, height: 0.1 };
+    const ink = { width: 400, height: 100 };
+
+    const outlines = placementMatrix(page, rect, ink);
+    const image = concat(unitSquareToBox(ink.width, ink.height), outlines);
+
+    // The image's top-left corner against the outline box's top-left corner.
+    expect(apply(image, 0, 1).x).toBeCloseTo(apply(outlines, 0, 0).x, 9);
+    expect(apply(image, 0, 1).y).toBeCloseTo(apply(outlines, 0, 0).y, 9);
+    // And its bottom-right against theirs.
+    expect(apply(image, 1, 0).x).toBeCloseTo(apply(outlines, ink.width, ink.height).x, 9);
+    expect(apply(image, 1, 0).y).toBeCloseTo(apply(outlines, ink.width, ink.height).y, 9);
   });
 });

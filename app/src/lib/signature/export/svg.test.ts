@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PathCommand } from '../path';
 import { boundsHeight, pathBounds } from './bounds';
-import { parsePathData } from './parse-path-data.test-helper';
+import { parsePathData } from './parse-path-data';
 import { toSvg } from './svg';
 
 const arc: PathCommand[] = [

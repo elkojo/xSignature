@@ -147,3 +147,37 @@ export function placementMatrix(
       return [0, -s, -s, 0, cx + pw - dy, cy + ph - dx];
   }
 }
+
+/**
+ * Multiply two `cm` matrices: `first`, then `second`.
+ *
+ * PDF composes transforms by concatenation, and the order is the one that
+ * reads backwards: a point goes through `first` and then through `second`, so
+ * `first` is the one written on the left here.
+ */
+export function concat(first: Matrix, second: Matrix): Matrix {
+  const [a1, b1, c1, d1, e1, f1] = first;
+  const [a2, b2, c2, d2, e2, f2] = second;
+  return [
+    a1 * a2 + b1 * c2,
+    a1 * b2 + b1 * d2,
+    c1 * a2 + d1 * c2,
+    c1 * b2 + d1 * d2,
+    e1 * a2 + f1 * c2 + e2,
+    e1 * b2 + f1 * d2 + f2,
+  ];
+}
+
+/**
+ * The matrix that turns an image's unit square into a box of `width` × `height`
+ * in the signature's own y-down space.
+ *
+ * PDF draws an image into the square from (0,0) to (1,1) with y running *up*,
+ * so the top row of pixels is at y = 1. Everything else in this app measures
+ * ink downwards from the top left. This is the one place that reconciles them,
+ * and concatenating it before `placementMatrix` means an image lands exactly
+ * where outlines of the same size would — same page, same rotation, same box.
+ */
+export function unitSquareToBox(width: number, height: number): Matrix {
+  return [width, 0, 0, -height, 0, height];
+}

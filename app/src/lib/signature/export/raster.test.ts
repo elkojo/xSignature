@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PathCommand } from '../path';
-import { parsePathData } from './parse-path-data.test-helper';
+import { parsePathData } from './parse-path-data';
 import { pngSize, replay, type PathSink } from './raster';
 import { toSvg } from './svg';
 

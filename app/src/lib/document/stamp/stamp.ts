@@ -10,16 +10,25 @@
  */
 import {
   concatTransformationMatrix,
+  drawObject,
+  PDFName,
   popGraphicsState,
   pushGraphicsState,
   rgb,
   setFillingColor,
   type PDFDocument,
+  type PDFImage,
   type PDFOperator,
 } from '@cantoo/pdf-lib';
 
 import type { PathCommand } from '../../signature/path';
-import { placementMatrix, type PageGeometry, type ViewRect } from '../place/placement';
+import {
+  concat,
+  placementMatrix,
+  unitSquareToBox,
+  type PageGeometry,
+  type ViewRect,
+} from '../place/placement';
 import { pathOperators } from './path-ops';
 
 export interface Stamp {
@@ -33,6 +42,23 @@ export interface Stamp {
   readonly height: number;
   /** `#rrggbb`. */
   readonly color: string;
+}
+
+/**
+ * A picture put on the page instead of outlines.
+ *
+ * Everything about where it goes is the same — same rectangle, same page, same
+ * rotation — because it runs through the same `placementMatrix`. The only
+ * difference is one extra matrix in front of it, reconciling an image's
+ * y-up unit square with the y-down space the ink is measured in.
+ */
+export interface ImageStamp {
+  readonly page: number;
+  readonly rect: ViewRect;
+  readonly image: PDFImage;
+  /** The picture's own proportions, which decide how it fits the rectangle. */
+  readonly width: number;
+  readonly height: number;
 }
 
 /** `#rrggbb` to the 0–1 components PDF wants. */
@@ -94,4 +120,35 @@ export function applyStamp(doc: PDFDocument, geometry: PageGeometry, stamp: Stam
   if (operators.length === 0) return;
 
   doc.getPage(stamp.page).pushOperators(...operators);
+}
+
+/**
+ * Draw an embedded picture onto a page.
+ *
+ * The image has to be registered on the page as a named resource before it can
+ * be drawn, which is why this cannot be a pure operator list like the outline
+ * path is — the name has to exist in the page's dictionary too.
+ */
+export function applyImageStamp(doc: PDFDocument, geometry: PageGeometry, stamp: ImageStamp): void {
+  if (stamp.width <= 0 || stamp.height <= 0) return;
+
+  const page = doc.getPage(stamp.page);
+
+  // A name nothing else on the page is using. Two signatures on one page would
+  // otherwise resolve to whichever was registered last.
+  const key = `XSigImage${Math.random().toString(36).slice(2, 10)}`;
+  page.node.setXObject(PDFName.of(key), stamp.image.ref);
+
+  const placed = placementMatrix(geometry, stamp.rect, {
+    width: stamp.width,
+    height: stamp.height,
+  });
+  const [a, b, c, d, e, f] = concat(unitSquareToBox(stamp.width, stamp.height), placed);
+
+  page.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(a, b, c, d, e, f),
+    drawObject(key),
+    popGraphicsState(),
+  );
 }

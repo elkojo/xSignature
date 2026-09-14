@@ -10,9 +10,10 @@ happens in the browser.
 Three screens:
 
 - **Signature image** — make a signature and save it as a PNG or an SVG.
-- **Sign a document** — open a PDF, place the signature on a page, save the
-  result. Plain text and Markdown are laid out as a PDF first, here on the
-  device. Optionally attach a timestamp.
+- **Sign a document** — open a PDF, bring in a signature by pasting, dropping or
+  choosing it, place it on a page and save the result. Plain text and Markdown
+  are laid out as a PDF first, here on the device. Optionally attach a
+  timestamp.
 - **Check a PDF** — read any PDF and report whether it carries a timestamp,
   whether the document still matches it, and whether anything was appended
   afterwards.
@@ -49,10 +50,20 @@ rather than two renderings that resemble each other.
 The SVG contains paths and no `<text>`, so it opens correctly on a machine that
 has none of these fonts installed.
 
-A signature goes onto a PDF as those same paths, not as a picture of them, so it
-stays sharp at any zoom and the document's own text stays text. Placement is one
-affine matrix, which is what keeps it right on a page that is stored rotated or
-cropped differently from how it is displayed.
+A signature reaches the signing screen as a file — pasted, dropped or chosen.
+An SVG made here comes back as the same outlines it left as, because `toSvg`
+bakes its offset into the path data rather than using a transform, so the `d`
+string is already in the space the stamp draws in; it goes onto the page as
+paths, not as a picture of paths. A PNG is placed as an image, which is not a
+lesser answer — a scanned signature has no vector form at all. What it costs is
+measured rather than assumed: the app works out the effective resolution where
+the picture is actually placed and says so only when that is genuinely too low.
+
+Placement is one affine matrix either way, which is what keeps a signature right
+on a page that is stored rotated or cropped differently from how it is
+displayed. An image gets one extra matrix in front, reconciling its y-up unit
+square with the y-down space the ink is measured in, so a picture and outlines
+of the same proportions land on exactly the same spot.
 
 A timestamp is a PAdES document timestamp — `/DocTimeStamp`, `/ETSI.RFC3161` —
 written as an incremental update, so the bytes that arrived are left exactly as

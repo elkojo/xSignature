@@ -5,6 +5,7 @@
    * lives in the view it renders.
    */
   import Signature from './views/Signature.svelte';
+  import Document from './views/Document.svelte';
   import { NAV, ROUTES, type View } from './nav';
 
   function viewFromHash(): View {
@@ -49,7 +50,11 @@
 </header>
 
 <main>
-  <Signature />
+  {#if view === 'document'}
+    <Document />
+  {:else}
+    <Signature />
+  {/if}
 </main>
 
 <footer class="site">

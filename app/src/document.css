@@ -1,0 +1,33 @@
+/*
+ * Styling particular to the document screen. app.css is vendored from xNotary
+ * and kept unedited, so anything new lives here.
+ */
+
+.picked {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+  padding: 14px 16px;
+  border: 1px solid var(--line-dark);
+  border-radius: 12px;
+  background: #fafaf7;
+}
+
+.picked-name {
+  color: var(--ink);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.picked-facts {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.drop-hint {
+  margin-top: 6px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}

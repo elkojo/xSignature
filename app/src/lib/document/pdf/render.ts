@@ -37,15 +37,14 @@ function pdfjs(): Promise<PdfJs> {
   return loading;
 }
 
-export interface RenderedPage {
-  readonly canvas: HTMLCanvasElement;
-  /** Size in CSS pixels, which is what the placement overlay is measured in. */
-  readonly width: number;
-  readonly height: number;
-}
-
 /**
  * Render one page to a canvas, `width` CSS pixels across.
+ *
+ * Only the canvas comes back. The width asked for is a *drawing* size, and the
+ * canvas may well be displayed smaller than it by the time anyone looks at it —
+ * so returning it as though it described the page on screen would invite
+ * exactly the mistake that put the signature overlay in the wrong place on a
+ * narrow window. Whatever needs the displayed size measures the canvas.
  *
  * `bytes` is copied before it is handed over because PDF.js takes ownership of
  * the buffer it is given and detaches it — passing the same array the writer
@@ -56,7 +55,7 @@ export async function renderPage(
   bytes: Uint8Array,
   pageNumber: number,
   width: number,
-): Promise<RenderedPage> {
+): Promise<HTMLCanvasElement> {
   const lib = await pdfjs();
   const task = lib.getDocument({ data: bytes.slice() });
   const doc = await task.promise;
@@ -85,7 +84,7 @@ export async function renderPage(
 
     await page.render({ canvasContext: context, viewport, canvas }).promise;
 
-    return { canvas, width: viewport.width, height: viewport.height };
+    return canvas;
   } finally {
     // Tear the whole task down, not just the document: the worker it started
     // stays alive otherwise, and a reader flipping through pages would leave

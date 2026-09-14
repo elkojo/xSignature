@@ -225,7 +225,7 @@
   // ---- step 3: placing it ---------------------------------------------------
 
   let page = $state(0);
-  let preview = $state<{ canvas: HTMLCanvasElement; width: number; height: number } | null>(null);
+  let preview = $state<HTMLCanvasElement | null>(null);
   let previewHost = $state<HTMLElement | null>(null);
   let rendering = $state(false);
 
@@ -284,13 +284,46 @@
   // than by this template, because PDF.js needs to own the drawing surface.
   $effect(() => {
     const host = previewHost;
-    const canvas = preview?.canvas;
+    const canvas = preview;
     if (!host || !canvas) return;
     host.replaceChildren(canvas);
   });
 
+  /**
+   * How big the page is *on screen*, which is not how big it was drawn.
+   *
+   * The canvas is rendered at a fixed width for sharpness and then sized by
+   * CSS, so on a narrow window it is displayed smaller than it was drawn. Every
+   * position here is a fraction of the page, and turning a fraction into pixels
+   * has to use the size the reader is actually looking at — measuring against
+   * the drawn width instead put the signature in one place on screen and
+   * another on the page, which is the one thing this app is built not to do.
+   *
+   * Observed rather than measured once, so it stays right when the window is
+   * resized or the phone is turned.
+   */
+  let shown = $state<{ width: number; height: number } | null>(null);
+
+  $effect(() => {
+    const canvas = preview;
+    if (!canvas) {
+      shown = null;
+      return;
+    }
+
+    const measure = () => {
+      const box = canvas.getBoundingClientRect();
+      if (box.width > 0) shown = { width: box.width, height: box.height };
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  });
+
   function onPointerDown(event: PointerEvent) {
-    if (!rect || !preview) return;
+    if (!rect || !shown) return;
     const surface = event.currentTarget as HTMLElement;
     surface.setPointerCapture(event.pointerId);
 
@@ -300,8 +333,8 @@
     const from = { ...at };
 
     const move = (moved: PointerEvent) => {
-      const dx = (moved.clientX - grabX) / preview!.width;
-      const dy = (moved.clientY - grabY) / preview!.height;
+      const dx = (moved.clientX - grabX) / shown!.width;
+      const dy = (moved.clientY - grabY) / shown!.height;
       at = {
         x: Math.min(Math.max(from.x + dx, 0), 1 - rect!.width),
         y: Math.min(Math.max(from.y + dy, 0), 1 - rect!.height),
@@ -477,15 +510,15 @@
     return pixelsNeededFor(rect.width * displayedSize(geometry).width);
   });
 
-  /** Where to draw the overlay, in preview pixels. */
+  /** Where to draw the overlay, in the pixels the page is shown at. */
   let overlay = $derived.by(() => {
-    if (!rect || !preview) return null;
+    if (!rect || !shown) return null;
     return fitInside(
       {
-        x: rect.x * preview.width,
-        y: rect.y * preview.height,
-        width: rect.width * preview.width,
-        height: rect.height * preview.height,
+        x: rect.x * shown.width,
+        y: rect.y * shown.height,
+        width: rect.width * shown.width,
+        height: rect.height * shown.height,
       },
       box?.width ?? 1,
       box?.height ?? 1,
@@ -919,7 +952,10 @@
         <p>A copy of your document with the signature drawn onto it.</p>
         <div class="side-list">
           <div>The text of the document stays text — it is not flattened to an image</div>
-          <div>The signature is a vector path, sharp at any zoom and any print size</div>
+          <div>
+            An SVG signature goes on as paths, sharp at any size; a PNG goes on as a picture, and
+            the app says whether it is big enough for where you put it
+          </div>
           <div>Read and written in this browser: no server, no account, no analytics</div>
           <div>A PDF that already carries a digital signature is refused, not broken</div>
           <div>Optionally a timestamp, which sends a 32-byte digest and nothing else</div>

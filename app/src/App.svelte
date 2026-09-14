@@ -72,40 +72,39 @@
   </div>
 </header>
 
+{#snippet loading()}
+  <section class="product-view">
+    <div class="workspace"><p>Loading the document tools…</p></div>
+  </section>
+{/snippet}
+
+{#snippet unavailable()}
+  <section class="product-view">
+    <div class="workspace">
+      <div class="notice bad">
+        The document tools could not be loaded. If you are offline and have not opened this screen
+        before, they are not in the cache yet.
+      </div>
+    </div>
+  </section>
+{/snippet}
+
 <main>
   {#if view === 'check'}
     {#await loadCheck()}
-      <section class="product-view">
-        <div class="workspace"><p>Loading the document tools…</p></div>
-      </section>
+      {@render loading()}
     {:then CheckView}
       <CheckView />
     {:catch}
-      <section class="product-view">
-        <div class="workspace">
-          <div class="notice bad">
-            The document tools could not be loaded. If you are offline and have not opened this
-            screen before, they are not in the cache yet.
-          </div>
-        </div>
-      </section>
+      {@render unavailable()}
     {/await}
   {:else if view === 'document'}
     {#await loadDocument()}
-      <section class="product-view">
-        <div class="workspace"><p>Loading the document tools…</p></div>
-      </section>
+      {@render loading()}
     {:then DocumentView}
       <DocumentView />
     {:catch}
-      <section class="product-view">
-        <div class="workspace">
-          <div class="notice bad">
-            The document tools could not be loaded. If you are offline and have not opened this
-            screen before, they are not in the cache yet.
-          </div>
-        </div>
-      </section>
+      {@render unavailable()}
     {/await}
   {:else}
     <Signature />
@@ -114,8 +113,9 @@
 
 <footer class="site">
   <div>
-    The name you type and the strokes you draw stay on this device — there is no server to send
-    them to. xSignature is free and open source under the
+    The name you type, the strokes you draw and the documents you open stay on this device. The
+    only thing this app ever sends is a 32-byte digest, when you ask it for a timestamp, and it
+    says so before it does. xSignature is free and open source under the
     <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">
       AGPL-3.0</a
     >. It makes pictures, not electronic signatures.

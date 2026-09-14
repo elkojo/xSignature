@@ -32,7 +32,14 @@ describe('accept', () => {
     expect(accept('contract.txt', PDF_HEAD).route).toBe('stamp');
   });
 
-  it('routes documents Pandoc reads to conversion, naming the format', () => {
+  it('lays plain text out here, with nothing to download', () => {
+    // A .txt has no structure to lose, so sending it through a document
+    // converter would cost a large download and gain nothing.
+    expect(accept('notes.txt', NOTHING)).toEqual({ route: 'text', format: 'Plain text' });
+    expect(accept('server.LOG', NOTHING).route).toBe('text');
+  });
+
+  it('routes documents with structure in them to the converter, naming the format', () => {
     expect(accept('lease.docx', ZIP_HEAD)).toEqual({ route: 'convert', format: 'Word document' });
     expect(accept('notes.odt', ZIP_HEAD).format).toBe('OpenDocument text');
     expect(accept('README.md', NOTHING).format).toBe('Markdown');

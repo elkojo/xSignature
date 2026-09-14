@@ -18,6 +18,7 @@
   import { fitInside, displayedSize } from '../lib/document/place/placement';
   import { applyStamp } from '../lib/document/stamp/stamp';
   import { accept, HEAD_BYTES, type Accepted } from '../lib/document/accept';
+  import { textToPdf } from '../lib/document/convert/text-to-pdf';
   import {
     AUTHORITIES,
     authorityById,
@@ -47,6 +48,10 @@
   let bytes = $state<Uint8Array | null>(null);
   let opened = $state<OpenPdf | null>(null);
   let openError = $state('');
+  /** True when what is being stamped was made here rather than dropped in. */
+  let converted = $state(false);
+  /** Size of the file as dropped, which is the one the reader recognises. */
+  let sourceSize = $state(0);
   let over = $state(false);
   let fileInput = $state<HTMLInputElement | null>(null);
 
@@ -56,23 +61,39 @@
     fileName = file.name;
 
     const all = new Uint8Array(await file.arrayBuffer());
+    sourceSize = all.length;
     verdict = accept(file.name, all.subarray(0, HEAD_BYTES));
-    if (verdict.route !== 'stamp') return;
 
-    bytes = all;
+    if (verdict.route === 'text') {
+      // Laid out here rather than fetched for: plain text has no structure to
+      // preserve, so this costs nothing and happens immediately.
+      try {
+        bytes = await textToPdf(new TextDecoder().decode(all), { title: file.name });
+        converted = true;
+      } catch {
+        openError = 'This text file could not be laid out as a PDF.';
+        return;
+      }
+    } else if (verdict.route === 'stamp') {
+      bytes = all;
+    } else {
+      return;
+    }
+
     try {
-      opened = await openPdf(all);
+      opened = await openPdf(bytes!);
       page = 0;
     } catch (cause) {
       openError =
         cause instanceof UnreadablePdf
           ? cause.message
-          : 'This PDF could not be opened, and the reason was not one the app recognises.';
+          : 'This document could not be opened, and the reason was not one the app recognises.';
     }
   }
 
   function reset() {
     verdict = null;
+    converted = false;
     bytes = null;
     opened = null;
     openError = '';
@@ -387,27 +408,35 @@
         <div class="flow-panel">
           <h2 class="panel-title">1 · Choose a document</h2>
           <p class="panel-copy">
-            A PDF can be stamped straight away. Word, OpenDocument, Markdown and the rest have to
-            be converted to a PDF first, which is not built yet.
+            A PDF can be stamped straight away, and a plain text file is laid out here in a
+            moment. Word, OpenDocument and the rest carry formatting that has to be typeset
+            properly, which needs a converter this page does not yet have.
           </p>
 
           {#if verdict}
             <div class="picked">
               <div class="picked-name">{fileName}</div>
               <div class="picked-facts">
-                {verdict.format}{#if bytes} · {readableSize(bytes.length)}{/if}
-                {#if opened} · {opened.pages.length} page{opened.pages.length === 1 ? '' : 's'}{/if}
+                {verdict.format} · {readableSize(sourceSize)}{#if opened} · {opened.pages
+                    .length} page{opened.pages.length === 1 ? '' : 's'}{/if}{#if converted} · laid
+                  out here as a PDF{/if}
               </div>
             </div>
 
             {#if openError}
               <div class="notice bad"><strong>Cannot use this file.</strong> {openError}</div>
+            {:else if verdict.route === 'text'}
+              <div class="notice ok">
+                <strong>Laid out as a PDF.</strong>
+                Plain text has no layout to preserve, so it was set here in a fixed-width face —
+                nothing was downloaded and nothing was sent anywhere.
+              </div>
             {:else if verdict.route === 'convert'}
               <div class="notice">
                 <strong>Needs converting first.</strong>
-                {verdict.format} is not a PDF. Converting one in the browser is the next piece of work
-                on this screen; until it is done, open the file in whatever wrote it and save it as a
-                PDF.
+                {verdict.format} carries formatting that has to be laid out properly, which needs a
+                converter this page does not yet have. Until it does, open the file in whatever wrote
+                it and save it as a PDF.
               </div>
             {:else if verdict.route === 'reject'}
               <div class="notice bad"><strong>Cannot read this one.</strong> {verdict.reason}</div>

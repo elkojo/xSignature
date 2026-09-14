@@ -29,12 +29,15 @@ because it appends changes to a PDF as an incremental update instead of
 rewriting the file — which is what a document timestamp will need, and what
 keeps an existing document's own bytes intact.
 
-PKI.js reads and writes the ASN.1 structures a timestamp is made of. It does
-not verify the authority's certificate chain here and is not asked to: that
-would need a trust store this app has no business shipping, and the check
-belongs in whatever the reader opens the finished PDF with. What is claimed on
-screen is exactly what the app checks — that the reply was granted, that it
-covers the digest that was sent, and that it echoes the nonce.
+PKI.js reads and writes the ASN.1 structures a timestamp is made of, and checks
+one on the way back in. It does
+not verify the authority's certificate chain and is not asked to: that would
+need a trust store this app has no business shipping or keeping current, and
+revocation would need a network it does not use. So the Check screen reports the
+signer's name exactly as the token states it, says in as many words that
+vouching for that name is a PDF reader's job, and confines itself to what it can
+actually establish — that the document still matches the timestamp, and that the
+token's own signature holds against the certificate inside it.
 
 PDF.js is used only to *display* a page. Nothing it renders is written into the
 saved document, and its worker is served from this origin: its own default is a

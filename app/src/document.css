@@ -157,3 +157,44 @@
   font-size: 12.5px;
   line-height: 1.55;
 }
+
+/* Readings off a checked document: label on the left, value on the right. */
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.facts > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line-dark);
+  font-size: 13.5px;
+}
+
+.facts > div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.facts span {
+  min-width: 108px;
+  color: var(--ink-soft);
+}
+
+.facts strong,
+.facts code {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.side-foot {
+  margin: 14px 0 0;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.55;
+}

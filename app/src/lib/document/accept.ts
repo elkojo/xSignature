@@ -13,7 +13,9 @@
 export type Route =
   /** Already a PDF. Stamp it directly. */
   | 'stamp'
-  /** A document Pandoc can read. Convert to PDF first. */
+  /** Plain text. Laid out here, with nothing to download. */
+  | 'text'
+  /** A document with structure in it. Needs the converter fetched. */
   | 'convert'
   /** Neither. Say so and stop. */
   | 'reject';
@@ -32,13 +34,25 @@ export interface Accepted {
  * only the plausible ones keeps the failure message honest rather than
  * offering formats nobody will drop here.
  */
+/**
+ * Formats with nothing in them to lose.
+ *
+ * Plain text has no structure to preserve, so laying it out is wrapping and
+ * pagination and no more — worth doing here rather than sending someone to
+ * fetch a document converter for a file that needs none of it.
+ */
+const PLAIN: ReadonlyArray<readonly [ext: string, format: string]> = [
+  ['txt', 'Plain text'],
+  ['text', 'Plain text'],
+  ['log', 'Log file'],
+];
+
 const CONVERTIBLE: ReadonlyArray<readonly [ext: string, format: string]> = [
   ['docx', 'Word document'],
   ['odt', 'OpenDocument text'],
   ['rtf', 'Rich text'],
   ['md', 'Markdown'],
   ['markdown', 'Markdown'],
-  ['txt', 'Plain text'],
   ['html', 'HTML'],
   ['htm', 'HTML'],
   ['epub', 'EPUB'],
@@ -85,6 +99,9 @@ export function accept(name: string, head: Uint8Array): Accepted {
   if (looksLikePdf(head)) return { route: 'stamp', format: 'PDF' };
 
   const ext = extensionOf(name);
+
+  const plain = PLAIN.find(([candidate]) => candidate === ext);
+  if (plain) return { route: 'text', format: plain[1] };
 
   const convertible = CONVERTIBLE.find(([candidate]) => candidate === ext);
   if (convertible) return { route: 'convert', format: convertible[1] };

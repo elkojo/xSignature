@@ -20,6 +20,11 @@
   const importDocument = () => import('./views/Document.svelte').then((module) => module.default);
   const loadDocument = () => (documentView ??= importDocument());
 
+  /** Checking a PDF needs the same tools, and is fetched the same way. */
+  let checkView: ReturnType<typeof importCheck> | null = null;
+  const importCheck = () => import('./views/Check.svelte').then((module) => module.default);
+  const loadCheck = () => (checkView ??= importCheck());
+
   function viewFromHash(): View {
     const raw = location.hash.replace(/^#\/?/, '');
     return (ROUTES as readonly string[]).includes(raw) ? (raw as View) : 'signature';
@@ -68,7 +73,24 @@
 </header>
 
 <main>
-  {#if view === 'document'}
+  {#if view === 'check'}
+    {#await loadCheck()}
+      <section class="product-view">
+        <div class="workspace"><p>Loading the document tools…</p></div>
+      </section>
+    {:then CheckView}
+      <CheckView />
+    {:catch}
+      <section class="product-view">
+        <div class="workspace">
+          <div class="notice bad">
+            The document tools could not be loaded. If you are offline and have not opened this
+            screen before, they are not in the cache yet.
+          </div>
+        </div>
+      </section>
+    {/await}
+  {:else if view === 'document'}
     {#await loadDocument()}
       <section class="product-view">
         <div class="workspace"><p>Loading the document tools…</p></div>

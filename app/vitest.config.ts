@@ -9,6 +9,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    setupFiles: ['src/test-setup.ts'],
     server: {
       deps: {
         // pdf-lib's ES build imports its bundled font metrics as JSON. Left

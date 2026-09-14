@@ -18,6 +18,14 @@
   import { fitInside, displayedSize } from '../lib/document/place/placement';
   import { applyStamp } from '../lib/document/stamp/stamp';
   import { accept, HEAD_BYTES, type Accepted } from '../lib/document/accept';
+  import {
+    AUTHORITIES,
+    authorityById,
+    checkAuthorityUrl,
+    DEFAULT_AUTHORITY_ID,
+  } from '../lib/document/timestamp/authorities';
+  import { applyDocTimeStamp, type Outgoing } from '../lib/document/timestamp/apply';
+  import type { Timestamp } from '../lib/document/timestamp/response';
   import { downloadBlob } from '../lib/signature/download';
   import { pathBounds } from '../lib/signature/export/bounds';
   import { layout } from '../lib/signature/export/layout';
@@ -234,6 +242,35 @@
     };
   }
 
+  // ---- the timestamp --------------------------------------------------------
+
+  /**
+   * Off, and it stays off until it is asked for.
+   *
+   * Every other thing this app does runs without a network. This one cannot: a
+   * timestamp is somebody else's assertion about when a file existed, so
+   * somebody else has to see a digest of it. That is a real departure from the
+   * promise the rest of the app makes, so it is never the default and it is
+   * never quiet.
+   */
+  let wantTimestamp = $state(false);
+  let authorityId = $state(DEFAULT_AUTHORITY_ID);
+  let useCustom = $state(false);
+  let customUrl = $state('');
+  let customError = $state('');
+  let stamped = $state<Timestamp | null>(null);
+  let sent = $state<Outgoing | null>(null);
+  let timestampError = $state('');
+
+  let authority = $derived(authorityById(authorityId) ?? AUTHORITIES[0]);
+
+  /** The address the request will actually go to, or null if it is not valid. */
+  let endpoint = $derived.by(() => {
+    if (!useCustom) return authority.url;
+    const checked = checkAuthorityUrl(customUrl);
+    return 'url' in checked ? checked.url : null;
+  });
+
   // ---- saving ---------------------------------------------------------------
 
   let saving = $state(false);
@@ -242,8 +279,16 @@
 
   async function save() {
     if (!bytes || !rect || !box || commands.length === 0) return;
+    if (wantTimestamp && !endpoint) {
+      customError = 'Enter a valid https address, or choose one of the authorities above.';
+      return;
+    }
     saving = true;
     saveError = '';
+    timestampError = '';
+    stamped = null;
+    sent = null;
+    customError = '';
     try {
       // Re-open from the original bytes so that saving twice does not stamp a
       // document that was already stamped.
@@ -258,13 +303,41 @@
       });
 
       const out = await fresh.doc.save();
-      downloadBlob(new Blob([out], { type: 'application/pdf' }), signedName());
-      saved = true;
+
+      if (!wantTimestamp) {
+        downloadBlob(new Blob([out], { type: 'application/pdf' }), signedName());
+        saved = true;
+        return;
+      }
+
+      // If the authority cannot be reached, the document is still perfectly
+      // good — it simply has no timestamp on it. Saying so and offering it is
+      // better than failing the whole save for the optional half of it.
+      try {
+        const result = await applyDocTimeStamp(out, endpoint!, {
+          onOutgoing: (outgoing) => (sent = outgoing),
+        });
+        stamped = result.timestamp;
+        downloadBlob(new Blob([result.bytes], { type: 'application/pdf' }), signedName());
+        saved = true;
+      } catch (cause) {
+        timestampError =
+          cause instanceof Error
+            ? cause.message
+            : 'The timestamp could not be fetched, and the reason was not one the app recognises.';
+        downloadBlob(new Blob([out], { type: 'application/pdf' }), signedName());
+        saved = true;
+      }
     } catch {
       saveError = 'The signed PDF could not be written. The document may be damaged.';
     } finally {
       saving = false;
     }
+  }
+
+  /** Written out plainly, because a wall of hex is not a disclosure. */
+  function groupHex(hex: string): string {
+    return (hex.match(/.{1,8}/g) ?? []).join(' ');
   }
 
   function signedName(): string {
@@ -498,14 +571,130 @@
               <div class="notice">Type a name above and it will appear on the page.</div>
             {/if}
 
+            <div class="field timestamp-field">
+              <label class="check">
+                <input type="checkbox" bind:checked={wantTimestamp} />
+                <span>
+                  <strong>Add a timestamp</strong>
+                  <span class="check-note">
+                    Records that this exact file existed at a particular time. It records nothing
+                    about who made it.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {#if wantTimestamp}
+              <!--
+                The one place in this app where something leaves the device. It
+                is stated before it happens, in full, rather than explained
+                afterwards in a changelog.
+              -->
+              <div class="notice warn">
+                <strong>This sends one request off your device.</strong>
+                It is the only one the app makes, and a timestamp cannot work without
+                it: somebody independent has to see the file's fingerprint and sign it,
+                or the time means nothing.
+                <span class="outgoing-list">
+                  <span><strong>What goes:</strong> 32 bytes — the SHA-256 of the finished PDF</span>
+                  <span><strong>What does not:</strong> the document, your name, the signature</span>
+                  <span
+                    ><strong>Where:</strong>
+                    <code>{endpoint ?? 'nowhere — the address below is not valid'}</code></span
+                  >
+                </span>
+                A digest cannot be turned back into the file it came from, so the authority
+                learns that something existed, not what.
+              </div>
+
+              <div class="field">
+                <span class="field-label">Authority</span>
+                <div class="authority-list">
+                  {#each AUTHORITIES as option}
+                    <button
+                      type="button"
+                      class="face-option"
+                      class:selected={!useCustom && authorityId === option.id}
+                      onclick={() => {
+                        useCustom = false;
+                        authorityId = option.id;
+                      }}
+                    >
+                      <strong>{option.name}</strong>
+                      <span>{option.note}</span>
+                    </button>
+                  {/each}
+                  <button
+                    type="button"
+                    class="face-option"
+                    class:selected={useCustom}
+                    onclick={() => (useCustom = true)}
+                  >
+                    <strong>Another one</strong>
+                    <span>Your own authority, if it allows requests from a browser</span>
+                  </button>
+                </div>
+              </div>
+
+              {#if useCustom}
+                <div class="field">
+                  <label for="tsa-url">Timestamp authority address</label>
+                  <input
+                    id="tsa-url"
+                    class="input"
+                    type="url"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="https://tsa.example.org/tsr"
+                    bind:value={customUrl}
+                  />
+                  <p class="field-note">
+                    Most authorities refuse requests that come from a web page, and there is
+                    nothing this app can do about that from inside a browser. If one does not
+                    work, that is usually why.
+                  </p>
+                </div>
+              {:else if !authority.adobeTrusted}
+                <div class="notice">
+                  Acrobat will not recognise {authority.signedBy}'s certificate and will say the
+                  timestamp is of unknown origin. The token is still a real timestamp and any tool
+                  with {authority.signedBy}'s published certificate can check it.
+                </div>
+              {/if}
+
+              {#if customError}
+                <div class="notice bad">{customError}</div>
+              {/if}
+            {/if}
+
             {#if saveError}
               <div class="notice bad">{saveError}</div>
             {:else if saved}
-              <div class="notice ok">
-                <strong>Saved.</strong>
-                The original document is untouched — what was written is a copy with the signature drawn
-                on it.
-              </div>
+              {#if timestampError}
+                <div class="notice bad">
+                  <strong>Saved, without a timestamp.</strong>
+                  {timestampError} The PDF was written anyway, with the signature on it.
+                </div>
+              {:else if stamped}
+                <div class="notice ok">
+                  <strong>Saved, and timestamped.</strong>
+                  {authority.signedBy} states that this exact file existed at
+                  <strong>{stamped.time.toISOString().replace('T', ' ').replace('.000Z', ' UTC')}</strong>.
+                  It states nothing about who made it, and neither does the file.
+                  {#if sent}
+                    <span class="outgoing-list">
+                      <span><strong>Sent:</strong> <code>{groupHex(sent.digestHex)}</code></span>
+                      <span><strong>To:</strong> <code>{sent.url}</code></span>
+                    </span>
+                  {/if}
+                </div>
+              {:else}
+                <div class="notice ok">
+                  <strong>Saved.</strong>
+                  The original document is untouched — what was written is a copy with the signature
+                  drawn on it.
+                </div>
+              {/if}
             {/if}
 
             <div class="action-group">
@@ -515,7 +704,7 @@
                 disabled={!ready || saving}
                 onclick={() => void save()}
               >
-                {saving ? 'Writing…' : 'Save signed PDF'}
+                {saving ? 'Writing…' : wantTimestamp ? 'Save, and timestamp' : 'Save signed PDF'}
               </button>
             </div>
           </div>
@@ -532,6 +721,12 @@
           it there — anyone who has the image can do the same to any file. Use this for
           letterheads, forms and returning paperwork, not as evidence that you agreed to
           something.
+          <br /><br />
+          <strong>A timestamp does not change that.</strong>
+          It establishes one fact and no others: that this file existed at a particular time.
+          It says nothing about who wrote it, who signed it, or whether anyone agreed to
+          anything — and a timestamped document with a picture of your name on it is still
+          a document with a picture of your name on it.
         </div>
       </div>
 
@@ -543,6 +738,7 @@
           <div>The signature is a vector path, sharp at any zoom and any print size</div>
           <div>Read and written in this browser: no server, no account, no analytics</div>
           <div>A PDF that already carries a digital signature is refused, not broken</div>
+          <div>Optionally a timestamp, which sends a 32-byte digest and nothing else</div>
         </div>
       </aside>
     </div>

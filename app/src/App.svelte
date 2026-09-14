@@ -5,7 +5,7 @@
    * lives in the view it renders.
    */
   import Signature from './views/Signature.svelte';
-  import { NAV, ROUTES, type View } from './nav';
+  import { NAV, ROUTES, titleFor, type View } from './nav';
 
   /**
    * The document screen is fetched when it is first opened, not before.
@@ -32,6 +32,12 @@
     history.replaceState(null, '', `#/${next}`);
     scrollTo({ top: 0 });
   }
+
+  // The tab is the only label some people see when several are open, and a
+  // second screen made the static one in index.html wrong half the time.
+  $effect(() => {
+    document.title = titleFor(view);
+  });
 
   $effect(() => {
     const onHash = () => (view = viewFromHash());

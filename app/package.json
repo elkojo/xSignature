@@ -41,8 +41,10 @@
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^2.11.0",
+    "asn1js": "^3.0.10",
     "opentype.js": "^2.0.0",
     "pdfjs-dist": "^6.3.289",
+    "pkijs": "^3.4.0",
     "signature_pad": "^5.1.4"
   }
 }

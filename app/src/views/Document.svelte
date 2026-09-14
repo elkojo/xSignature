@@ -18,6 +18,7 @@
   import { fitInside, displayedSize } from '../lib/document/place/placement';
   import { applyStamp } from '../lib/document/stamp/stamp';
   import { accept, HEAD_BYTES, type Accepted } from '../lib/document/accept';
+  import { markdownToPdf } from '../lib/document/convert/markdown-to-pdf';
   import { textToPdf } from '../lib/document/convert/text-to-pdf';
   import {
     AUTHORITIES,
@@ -68,10 +69,14 @@
       // Laid out here rather than fetched for: plain text has no structure to
       // preserve, so this costs nothing and happens immediately.
       try {
-        bytes = await textToPdf(new TextDecoder().decode(all), { title: file.name });
+        const source = new TextDecoder().decode(all);
+        const isMarkdown = /\.(md|markdown)$/i.test(file.name);
+        bytes = isMarkdown
+          ? await markdownToPdf(source, { title: file.name })
+          : await textToPdf(source, { title: file.name });
         converted = true;
       } catch {
-        openError = 'This text file could not be laid out as a PDF.';
+        openError = 'This file could not be laid out as a PDF.';
         return;
       }
     } else if (verdict.route === 'stamp') {
@@ -408,7 +413,7 @@
         <div class="flow-panel">
           <h2 class="panel-title">1 · Choose a document</h2>
           <p class="panel-copy">
-            A PDF can be stamped straight away, and a plain text file is laid out here in a
+            A PDF can be stamped straight away. Plain text and Markdown are laid out here in a
             moment. Word, OpenDocument and the rest carry formatting that has to be typeset
             properly, which needs a converter this page does not yet have.
           </p>
@@ -428,8 +433,9 @@
             {:else if verdict.route === 'text'}
               <div class="notice ok">
                 <strong>Laid out as a PDF.</strong>
-                Plain text has no layout to preserve, so it was set here in a fixed-width face —
-                nothing was downloaded and nothing was sent anywhere.
+                Set here with the fonts every PDF reader already has, so nothing was downloaded and
+                nothing was sent anywhere. It is a plain setting of the document rather than
+                typesetting — check it reads the way you want before signing it.
               </div>
             {:else if verdict.route === 'convert'}
               <div class="notice">

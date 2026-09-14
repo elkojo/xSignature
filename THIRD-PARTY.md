@@ -17,6 +17,7 @@ is built into the bundle and served from the same origin as the app.
 | [pdfjs-dist](https://github.com/mozilla/pdf.js) | 6.3.289 | Apache-2.0 | Drawing a page on screen so the signature can be positioned on it |
 | [pkijs](https://github.com/PeculiarVentures/PKI.js) | 3.4.0 | BSD-3-Clause | Building the RFC 3161 timestamp request and reading the reply |
 | [asn1js](https://github.com/PeculiarVentures/ASN1.js) | 3.0.10 | BSD-3-Clause | The ASN.1 encoding underneath it |
+| [marked](https://github.com/markedjs/marked) | 18.0.13 | MIT | Parsing Markdown, so a `.md` can be set as a PDF without a converter |
 
 MIT and the AGPL-3.0-or-later are satisfied by shipping the notices; MIT imposes
 no copyleft obligation on this project. Apache-2.0 is one-way compatible with

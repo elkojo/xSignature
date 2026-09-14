@@ -35,24 +35,25 @@ export interface Accepted {
  * offering formats nobody will drop here.
  */
 /**
- * Formats with nothing in them to lose.
+ * Formats this app can set for itself, with nothing to download.
  *
- * Plain text has no structure to preserve, so laying it out is wrapping and
- * pagination and no more — worth doing here rather than sending someone to
- * fetch a document converter for a file that needs none of it.
+ * Plain text has no structure to preserve, and Markdown's structure is small
+ * enough to set with the fonts every PDF reader already has. Both are laid out
+ * here rather than sending someone to fetch a document converter for a file
+ * that does not need one.
  */
 const PLAIN: ReadonlyArray<readonly [ext: string, format: string]> = [
   ['txt', 'Plain text'],
   ['text', 'Plain text'],
   ['log', 'Log file'],
+  ['md', 'Markdown'],
+  ['markdown', 'Markdown'],
 ];
 
 const CONVERTIBLE: ReadonlyArray<readonly [ext: string, format: string]> = [
   ['docx', 'Word document'],
   ['odt', 'OpenDocument text'],
   ['rtf', 'Rich text'],
-  ['md', 'Markdown'],
-  ['markdown', 'Markdown'],
   ['html', 'HTML'],
   ['htm', 'HTML'],
   ['epub', 'EPUB'],

@@ -39,10 +39,14 @@ describe('accept', () => {
     expect(accept('server.LOG', NOTHING).route).toBe('text');
   });
 
+  it('sets Markdown here too, since its structure fits the built-in fonts', () => {
+    expect(accept('README.md', NOTHING)).toEqual({ route: 'text', format: 'Markdown' });
+    expect(accept('notes.markdown', NOTHING).route).toBe('text');
+  });
+
   it('routes documents with structure in them to the converter, naming the format', () => {
     expect(accept('lease.docx', ZIP_HEAD)).toEqual({ route: 'convert', format: 'Word document' });
     expect(accept('notes.odt', ZIP_HEAD).format).toBe('OpenDocument text');
-    expect(accept('README.md', NOTHING).format).toBe('Markdown');
     expect(accept('terms.RTF', NOTHING).route).toBe('convert');
   });
 

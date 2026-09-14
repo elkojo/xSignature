@@ -1,0 +1,34 @@
+# Every host that may appear in the built app, and why.
+#
+# CLAUDE.md allows this app exactly one network request at runtime — the
+# document timestamp — and says that adding a second is a bug. A blocklist of
+# known CDNs cannot enforce that, because it only catches the hosts somebody
+# thought to list. This is the other way round: the build is scanned for every
+# host it mentions, and anything not written down here fails CI.
+#
+# Most of what follows is inert — XML namespaces that are never fetched,
+# documentation links, placeholder text in the interface. That is fine, and
+# listing them is the price of noticing the one that would not be.
+#
+# Adding a line here is the moment to ask whether the app is about to start
+# talking to somebody new.
+
+# --- Actually contacted, and only when the reader asks for a timestamp -------
+rfc3161.ai.moda          # CORS-capable relay in front of DigiCert and others
+timestamp.sigstore.dev   # the direct, non-relayed alternative
+
+# --- Never fetched: XML and metadata namespaces -----------------------------
+www.w3.org               # SVG and XMP namespaces
+ns.adobe.com             # XMP namespaces written by the PDF writer
+purl.org                 # Dublin Core, in XMP
+www.aiim.org             # PDF/A namespace
+
+# --- Never fetched: documentation and licence links -------------------------
+svelte.dev               # framework error messages
+github.com               # producer string written by the PDF writer
+www.gnu.org              # the AGPL link in the footer
+
+# --- Never fetched: placeholder text shown in the interface -----------------
+tsa.example.org          # placeholder in the custom timestamp authority field
+example.com              # library placeholder
+foo.bar                  # library placeholder

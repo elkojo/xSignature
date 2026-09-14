@@ -40,13 +40,23 @@ jobs:
         run: npx vite build
 
       - name: Check no third-party host crept into the build
-        # Cheap guard on the promise the interface makes. Fonts are bundled and
-        # served from this origin; a CDN reference would break that silently and
-        # only for the user, who would never know what was requested on their
-        # behalf.
+        # The promise the interface makes, enforced rather than trusted. This
+        # app is allowed exactly one network request — the document timestamp —
+        # and a blocklist of known CDNs would only catch the hosts somebody
+        # thought to list. So every host the build mentions is compared against
+        # hosts-in-build.txt, and anything not written down there fails here.
         run: |
-          if grep -rE 'https?://(fonts\.googleapis|fonts\.gstatic|cdn\.|unpkg|jsdelivr)' dist --include='*.js' --include='*.css' --include='*.html'; then
-            echo '::error::the build references a third-party host'
+          grep -ohE 'https?://[a-zA-Z0-9._-]+' \
+            dist/assets/*.js dist/assets/*.css dist/*.html 2>/dev/null \
+            | sed -E 's|https?://||' | sort -u > /tmp/found-hosts.txt
+          grep -vE '^\s*(#|$)' hosts-in-build.txt | awk '{print $1}' | sort -u > /tmp/allowed-hosts.txt
+          if ! comm -23 /tmp/found-hosts.txt /tmp/allowed-hosts.txt | grep -q .; then
+            echo "every host in the build is accounted for"
+          else
+            echo '::error::the build mentions a host that is not in hosts-in-build.txt:'
+            comm -23 /tmp/found-hosts.txt /tmp/allowed-hosts.txt
+            echo 'If this is a new network request, it needs to be justified against'
+            echo 'the no-backend rule in CLAUDE.md before it is added to that file.'
             exit 1
           fi
 

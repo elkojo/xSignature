@@ -1,49 +1,298 @@
 <script lang="ts">
   /**
-   * Signing a document: take a file in, put a signature on it, give a PDF
-   * back. This screen is being built in stages, and today it does the first
-   * one — work out what the file is and what it would take to stamp it.
+   * Signing a document: take a file in, put a signature on it, give a PDF back.
    *
-   * Reading the file is deliberately shallow. Eight bytes are enough to tell a
-   * PDF from everything else, and knowing that before anything else happens is
-   * what lets the reader be told the cost up front: a PDF is stamped by code
-   * already on the page, and anything else needs a converter that is a large
-   * download.
+   * The screen holds no geometry. Where the signature lands is a rectangle in
+   * fractions of the displayed page, and turning that into marks on the page is
+   * `lib/document/place` and `lib/document/stamp` — including the awkward part,
+   * which is that a page may be stored rotated and cropped and the reader is
+   * dragging a box on neither of those.
+   *
+   * The preview is drawn by PDF.js and the file is written by the PDF writer,
+   * and the two never meet: nothing rasterized for the screen goes into the
+   * saved document. What is saved is the original bytes with a path drawn on
+   * top, so the text in the document stays text.
    */
+  import { openPdf, UnreadablePdf, type OpenPdf } from '../lib/document/pdf/inspect';
+  import { renderPage } from '../lib/document/pdf/render';
+  import { fitInside, displayedSize } from '../lib/document/place/placement';
+  import { applyStamp } from '../lib/document/stamp/stamp';
   import { accept, HEAD_BYTES, type Accepted } from '../lib/document/accept';
+  import { downloadBlob } from '../lib/signature/download';
+  import { pathBounds } from '../lib/signature/export/bounds';
+  import { layout } from '../lib/signature/export/layout';
+  import { toPathData, type PathCommand } from '../lib/signature/path';
+  import { INKS } from '../lib/signature/style';
+  import { DEFAULT_FACE_ID, FACES, faceById } from '../lib/signature/type/faces';
+  import { loadFace } from '../lib/signature/type/font';
+  import { textToPath } from '../lib/signature/type/text-to-path';
 
-  interface Chosen {
-    name: string;
-    size: number;
-    verdict: Accepted;
-  }
+  /** The margin the signature keeps around its own ink, as on the other screen. */
+  const PADDING = 0.08;
+  /** How wide the page preview is drawn, in CSS pixels. */
+  const PREVIEW_WIDTH = 520;
 
-  let chosen = $state<Chosen | null>(null);
+  // ---- step 1: the document -------------------------------------------------
+
+  let fileName = $state('');
+  let verdict = $state<Accepted | null>(null);
+  let bytes = $state<Uint8Array | null>(null);
+  let opened = $state<OpenPdf | null>(null);
+  let openError = $state('');
   let over = $state(false);
-  let input = $state<HTMLInputElement | null>(null);
+  let fileInput = $state<HTMLInputElement | null>(null);
 
   async function take(file: File | undefined) {
     if (!file) return;
-    const head = new Uint8Array(await file.slice(0, HEAD_BYTES).arrayBuffer());
-    chosen = { name: file.name, size: file.size, verdict: accept(file.name, head) };
+    reset();
+    fileName = file.name;
+
+    const all = new Uint8Array(await file.arrayBuffer());
+    verdict = accept(file.name, all.subarray(0, HEAD_BYTES));
+    if (verdict.route !== 'stamp') return;
+
+    bytes = all;
+    try {
+      opened = await openPdf(all);
+      page = 0;
+    } catch (cause) {
+      openError =
+        cause instanceof UnreadablePdf
+          ? cause.message
+          : 'This PDF could not be opened, and the reason was not one the app recognises.';
+    }
   }
 
-  function onDrop(event: DragEvent) {
+  function reset() {
+    verdict = null;
+    bytes = null;
+    opened = null;
+    openError = '';
+    preview = null;
+    saved = false;
+  }
+
+  function startOver() {
+    reset();
+    fileName = '';
+    if (fileInput) fileInput.value = '';
+  }
+
+  // ---- step 2: the signature ------------------------------------------------
+
+  let name = $state('');
+  let faceId = $state(DEFAULT_FACE_ID);
+  let ink = $state<string>(INKS[0].hex);
+  let commands = $state<PathCommand[]>([]);
+
+  // The ink is measured once, here, and both the overlay and the stamp use
+  // these numbers — so what is dragged on screen is what lands on the page.
+  let box = $derived.by(() => {
+    const bounds = pathBounds(commands);
+    return bounds ? layout(bounds, { padding: PADDING }) : null;
+  });
+
+  let pathData = $derived(toPathData(commands));
+
+  $effect(() => {
+    const face = faceById(faceId);
+    const text = name.trim();
+    if (!face || !text) {
+      commands = [];
+      return;
+    }
+
+    let current = true;
+    void loadFace(face)
+      .then((font) => {
+        // A face that arrives after the reader has moved on must not overwrite
+        // what they chose in the meantime.
+        if (current) commands = textToPath(font, text, { fontSize: 120 });
+      })
+      .catch(() => {
+        if (current) commands = [];
+      });
+    return () => {
+      current = false;
+    };
+  });
+
+  // ---- step 3: placing it ---------------------------------------------------
+
+  let page = $state(0);
+  let preview = $state<{ canvas: HTMLCanvasElement; width: number; height: number } | null>(null);
+  let previewHost = $state<HTMLElement | null>(null);
+  let rendering = $state(false);
+
+  /** Top-left corner of the signature, in fractions of the displayed page. */
+  let at = $state({ x: 0.55, y: 0.78 });
+  /** How much of the page's width the signature spans. */
+  let span = $state(0.32);
+
+  let geometry = $derived(opened?.pages[page] ?? null);
+
+  /**
+   * The signature's box in fractions of the page.
+   *
+   * The height follows from the width and the ink's own proportions, so the
+   * rectangle handed to the stamp is exactly the one drawn here — no fitting
+   * happens twice, and the preview cannot drift from the result.
+   */
+  let rect = $derived.by(() => {
+    if (!box || !geometry) return null;
+    const view = displayedSize(geometry);
+    const height = ((box.height / box.width) * span * view.width) / view.height;
+    return { x: at.x, y: at.y, width: span, height };
+  });
+
+  // Keep the signature on the sheet when it is resized near an edge.
+  $effect(() => {
+    if (!rect) return;
+    const x = Math.min(at.x, 1 - rect.width);
+    const y = Math.min(at.y, 1 - rect.height);
+    if (x !== at.x || y !== at.y) at = { x: Math.max(0, x), y: Math.max(0, y) };
+  });
+
+  $effect(() => {
+    const source = bytes;
+    const which = page;
+    if (!source || !opened) return;
+
+    let current = true;
+    rendering = true;
+    void renderPage(source, which + 1, PREVIEW_WIDTH)
+      .then((rendered) => {
+        if (current) preview = rendered;
+      })
+      .catch(() => {
+        if (current) openError = 'This PDF opened, but its pages could not be drawn on screen.';
+      })
+      .finally(() => {
+        if (current) rendering = false;
+      });
+    return () => {
+      current = false;
+    };
+  });
+
+  // Swapping the canvas element in by hand: it is made by the renderer rather
+  // than by this template, because PDF.js needs to own the drawing surface.
+  $effect(() => {
+    const host = previewHost;
+    const canvas = preview?.canvas;
+    if (!host || !canvas) return;
+    host.replaceChildren(canvas);
+  });
+
+  function onPointerDown(event: PointerEvent) {
+    if (!rect || !preview) return;
+    const surface = event.currentTarget as HTMLElement;
+    surface.setPointerCapture(event.pointerId);
+
+    // Where in the signature the pointer took hold, so it does not jump.
+    const grabX = event.clientX;
+    const grabY = event.clientY;
+    const from = { ...at };
+
+    const move = (moved: PointerEvent) => {
+      const dx = (moved.clientX - grabX) / preview!.width;
+      const dy = (moved.clientY - grabY) / preview!.height;
+      at = {
+        x: Math.min(Math.max(from.x + dx, 0), 1 - rect!.width),
+        y: Math.min(Math.max(from.y + dy, 0), 1 - rect!.height),
+      };
+    };
+
+    const up = () => {
+      surface.removeEventListener('pointermove', move);
+      surface.removeEventListener('pointerup', up);
+      surface.removeEventListener('pointercancel', up);
+    };
+
+    surface.addEventListener('pointermove', move);
+    surface.addEventListener('pointerup', up);
+    surface.addEventListener('pointercancel', up);
+  }
+
+  /** Nudge with the arrow keys, for placement finer than a drag allows. */
+  function onOverlayKey(event: KeyboardEvent) {
+    if (!rect) return;
+    const step = event.shiftKey ? 0.05 : 0.004;
+    const by: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+    const delta = by[event.key];
+    if (!delta) return;
+
     event.preventDefault();
-    over = false;
-    void take(event.dataTransfer?.files?.[0]);
+    at = {
+      x: Math.min(Math.max(at.x + delta[0], 0), 1 - rect.width),
+      y: Math.min(Math.max(at.y + delta[1], 0), 1 - rect.height),
+    };
   }
 
-  function clear() {
-    chosen = null;
-    if (input) input.value = '';
+  // ---- saving ---------------------------------------------------------------
+
+  let saving = $state(false);
+  let saved = $state(false);
+  let saveError = $state('');
+
+  async function save() {
+    if (!bytes || !rect || !box || commands.length === 0) return;
+    saving = true;
+    saveError = '';
+    try {
+      // Re-open from the original bytes so that saving twice does not stamp a
+      // document that was already stamped.
+      const fresh = await openPdf(bytes);
+      applyStamp(fresh.doc, fresh.pages[page], {
+        page,
+        rect,
+        commands,
+        width: box.width,
+        height: box.height,
+        color: ink,
+      });
+
+      const out = await fresh.doc.save();
+      downloadBlob(new Blob([out], { type: 'application/pdf' }), signedName());
+      saved = true;
+    } catch {
+      saveError = 'The signed PDF could not be written. The document may be damaged.';
+    } finally {
+      saving = false;
+    }
   }
 
-  /** Sizes the way a file manager writes them, not in raw bytes. */
-  function readableSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} bytes`;
-    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  function signedName(): string {
+    const base = fileName.replace(/\.pdf$/i, '');
+    return `${base || 'document'}-signed.pdf`;
+  }
+
+  let ready = $derived(Boolean(opened && rect && commands.length > 0));
+
+  /** Where to draw the overlay, in preview pixels. */
+  let overlay = $derived.by(() => {
+    if (!rect || !preview) return null;
+    return fitInside(
+      {
+        x: rect.x * preview.width,
+        y: rect.y * preview.height,
+        width: rect.width * preview.width,
+        height: rect.height * preview.height,
+      },
+      box?.width ?? 1,
+      box?.height ?? 1,
+    );
+  });
+
+  function readableSize(value: number): string {
+    if (value < 1024) return `${value} bytes`;
+    if (value < 1024 * 1024) return `${Math.round(value / 1024)} kB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   }
 </script>
 
@@ -53,8 +302,8 @@
       <div>
         <h1>Put a signature on a document</h1>
         <p>
-          Open a document, place your signature on it and save the result as a PDF. The file is
-          read in this browser and never sent anywhere.
+          Open a PDF, place your signature on it and save the result. The file is read in this
+          browser and never sent anywhere.
         </p>
       </div>
       <span class="secure-note">Processed in this browser</span>
@@ -63,41 +312,36 @@
     <div class="flow-shell">
       <div class="flow-main">
         <div class="flow-panel">
-          <h2 class="panel-title">Choose a document</h2>
+          <h2 class="panel-title">1 · Choose a document</h2>
           <p class="panel-copy">
             A PDF can be stamped straight away. Word, OpenDocument, Markdown and the rest have to
-            be converted to a PDF first, which needs a converter this page does not carry — it is
-            fetched only if you ask for it, and the size is stated before it starts.
+            be converted to a PDF first, which is not built yet.
           </p>
 
-          {#if chosen}
+          {#if verdict}
             <div class="picked">
-              <div class="picked-name">{chosen.name}</div>
+              <div class="picked-name">{fileName}</div>
               <div class="picked-facts">
-                {chosen.verdict.format} · {readableSize(chosen.size)}
+                {verdict.format}{#if bytes} · {readableSize(bytes.length)}{/if}
+                {#if opened} · {opened.pages.length} page{opened.pages.length === 1 ? '' : 's'}{/if}
               </div>
             </div>
 
-            {#if chosen.verdict.route === 'stamp'}
-              <div class="notice ok">
-                <strong>Ready to stamp.</strong>
-                This is already a PDF, so nothing has to be converted and nothing has to be downloaded.
-              </div>
-            {:else if chosen.verdict.route === 'convert'}
+            {#if openError}
+              <div class="notice bad"><strong>Cannot use this file.</strong> {openError}</div>
+            {:else if verdict.route === 'convert'}
               <div class="notice">
                 <strong>Needs converting first.</strong>
-                {chosen.verdict.format} is not a PDF, so it has to be laid out as one before a signature
-                can go on it.
+                {verdict.format} is not a PDF. Converting one in the browser is the next piece of work
+                on this screen; until it is done, open the file in whatever wrote it and save it as a
+                PDF.
               </div>
-            {:else}
-              <div class="notice bad">
-                <strong>Cannot read this one.</strong>
-                {chosen.verdict.reason}
-              </div>
+            {:else if verdict.route === 'reject'}
+              <div class="notice bad"><strong>Cannot read this one.</strong> {verdict.reason}</div>
             {/if}
 
             <div class="action-group">
-              <button class="button secondary small" type="button" onclick={clear}>
+              <button class="button secondary small" type="button" onclick={startOver}>
                 Choose a different file
               </button>
             </div>
@@ -111,15 +355,19 @@
                 over = true;
               }}
               ondragleave={() => (over = false)}
-              ondrop={onDrop}
+              ondrop={(event) => {
+                event.preventDefault();
+                over = false;
+                void take(event.dataTransfer?.files?.[0]);
+              }}
             >
               <div>
                 <div class="file-icon" aria-hidden="true">PDF</div>
                 <strong>Drop a document here</strong>
-                <div class="drop-hint">or click to choose one — PDF, Word, OpenDocument, Markdown, plain text</div>
+                <div class="drop-hint">or click to choose one</div>
               </div>
               <input
-                bind:this={input}
+                bind:this={fileInput}
                 type="file"
                 accept=".pdf,.docx,.odt,.rtf,.md,.markdown,.txt,.html,.htm,.epub,.tex,.rst,.org,.adoc"
                 onchange={(event) => void take(event.currentTarget.files?.[0])}
@@ -127,6 +375,151 @@
             </label>
           {/if}
         </div>
+
+        {#if opened}
+          <div class="flow-panel">
+            <h2 class="panel-title">2 · Write the signature</h2>
+            <p class="panel-copy">
+              The same outlines the signature screen makes, so what goes onto the page is a drawing
+              rather than a font the reader may not have.
+            </p>
+
+            <div class="field">
+              <label for="document-name">Name</label>
+              <input
+                id="document-name"
+                class="input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                bind:value={name}
+                placeholder="Ada Lovelace"
+              />
+            </div>
+
+            <div class="field">
+              <span class="field-label">Face</span>
+              <div class="face-grid">
+                {#each FACES as face}
+                  <button
+                    type="button"
+                    class="face-option"
+                    class:selected={faceId === face.id}
+                    onclick={() => (faceId = face.id)}
+                  >
+                    <strong>{face.name}</strong>
+                    <span>{face.note}</span>
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <div class="field">
+              <span class="field-label">Ink</span>
+              <div class="swatches">
+                {#each INKS as colour}
+                  <button
+                    type="button"
+                    class="swatch"
+                    class:selected={ink === colour.hex}
+                    style="background: {colour.hex}"
+                    title={colour.name}
+                    aria-label={colour.name}
+                    onclick={() => (ink = colour.hex)}
+                  ></button>
+                {/each}
+              </div>
+            </div>
+          </div>
+
+          <div class="flow-panel">
+            <h2 class="panel-title">3 · Place it, and save</h2>
+            <p class="panel-copy">
+              Drag the signature to where it goes. Arrow keys nudge it; hold shift to move further.
+            </p>
+
+            {#if opened.pages.length > 1}
+              <div class="field">
+                <label for="document-page">Page</label>
+                <select
+                  id="document-page"
+                  class="input"
+                  bind:value={page}
+                >
+                  {#each opened.pages as _, index}
+                    <option value={index}>Page {index + 1} of {opened.pages.length}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
+
+            <div class="field">
+              <label for="document-span">Size</label>
+              <input
+                id="document-span"
+                class="slider"
+                type="range"
+                min="0.08"
+                max="0.8"
+                step="0.01"
+                bind:value={span}
+              />
+            </div>
+
+            <div class="sheet">
+              {#if rendering && !preview}
+                <p class="panel-copy">Drawing the page…</p>
+              {/if}
+              <div class="sheet-stage" bind:this={previewHost}></div>
+
+              {#if overlay && commands.length > 0}
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div
+                  class="overlay"
+                  role="button"
+                  tabindex="0"
+                  aria-label="Signature position — drag, or use the arrow keys"
+                  style="left: {overlay.x}px; top: {overlay.y}px; width: {overlay.width}px; height: {overlay.height}px"
+                  onpointerdown={onPointerDown}
+                  onkeydown={onOverlayKey}
+                >
+                  <svg viewBox="0 0 {box?.width} {box?.height}" aria-hidden="true">
+                    <path
+                      d={pathData}
+                      fill={ink}
+                      transform="translate({box?.translateX} {box?.translateY})"
+                    />
+                  </svg>
+                </div>
+              {/if}
+            </div>
+
+            {#if commands.length === 0}
+              <div class="notice">Type a name above and it will appear on the page.</div>
+            {/if}
+
+            {#if saveError}
+              <div class="notice bad">{saveError}</div>
+            {:else if saved}
+              <div class="notice ok">
+                <strong>Saved.</strong>
+                The original document is untouched — what was written is a copy with the signature drawn
+                on it.
+              </div>
+            {/if}
+
+            <div class="action-group">
+              <button
+                class="button dark small"
+                type="button"
+                disabled={!ready || saving}
+                onclick={() => void save()}
+              >
+                {saving ? 'Writing…' : 'Save signed PDF'}
+              </button>
+            </div>
+          </div>
+        {/if}
 
         <!--
           The same limit as on the other screen, and it has to be said harder
@@ -143,12 +536,13 @@
       </div>
 
       <aside class="side-card">
-        <h3>What this screen does</h3>
-        <p>Being built in stages. This is what works today.</p>
+        <h3>What you get</h3>
+        <p>A copy of your document with the signature drawn onto it.</p>
         <div class="side-list">
-          <div>Reads the file in this browser — nothing is uploaded</div>
-          <div>Tells you whether it can be stamped as-is or needs converting</div>
-          <div>Refuses formats it genuinely cannot read, and says why</div>
+          <div>The text of the document stays text — it is not flattened to an image</div>
+          <div>The signature is a vector path, sharp at any zoom and any print size</div>
+          <div>Read and written in this browser: no server, no account, no analytics</div>
+          <div>A PDF that already carries a digital signature is refused, not broken</div>
         </div>
       </aside>
     </div>

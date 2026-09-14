@@ -31,3 +31,65 @@
   font-size: 13px;
   line-height: 1.5;
 }
+
+/*
+ * The page preview, and the signature sitting on top of it.
+ *
+ * The overlay is positioned in the same pixels the preview was drawn at, from
+ * the same rectangle the stamp is computed from — so what is dragged here is
+ * what lands on the page, rather than an approximation of it.
+ */
+.sheet {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.sheet-stage {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--line-dark);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.sheet-stage canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.overlay {
+  position: absolute;
+  padding: 0;
+  border: 1px dashed transparent;
+  background: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+.overlay:hover,
+.overlay:focus-visible {
+  border-color: #3d7a63;
+  outline: none;
+}
+
+.overlay:active {
+  cursor: grabbing;
+}
+
+.overlay svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.slider {
+  width: 100%;
+  max-width: 320px;
+  padding: 0;
+  accent-color: var(--green);
+}

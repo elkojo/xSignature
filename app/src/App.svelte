@@ -5,8 +5,20 @@
    * lives in the view it renders.
    */
   import Signature from './views/Signature.svelte';
-  import Document from './views/Document.svelte';
   import { NAV, ROUTES, type View } from './nav';
+
+  /**
+   * The document screen is fetched when it is first opened, not before.
+   *
+   * It carries a PDF writer and a PDF renderer between them, which together
+   * are several times the size of everything else in the app. Someone who came
+   * for a signature PNG should not download a PDF toolchain to get one, so the
+   * import stays dynamic — and the promise is kept so that returning to the
+   * screen does not ask for it again.
+   */
+  let documentView: ReturnType<typeof importDocument> | null = null;
+  const importDocument = () => import('./views/Document.svelte').then((module) => module.default);
+  const loadDocument = () => (documentView ??= importDocument());
 
   function viewFromHash(): View {
     const raw = location.hash.replace(/^#\/?/, '');
@@ -51,7 +63,22 @@
 
 <main>
   {#if view === 'document'}
-    <Document />
+    {#await loadDocument()}
+      <section class="product-view">
+        <div class="workspace"><p>Loading the document tools…</p></div>
+      </section>
+    {:then DocumentView}
+      <DocumentView />
+    {:catch}
+      <section class="product-view">
+        <div class="workspace">
+          <div class="notice bad">
+            The document tools could not be loaded. If you are offline and have not opened this
+            screen before, they are not in the cache yet.
+          </div>
+        </div>
+      </section>
+    {/await}
   {:else}
     <Signature />
   {/if}

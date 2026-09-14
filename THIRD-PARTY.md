@@ -13,9 +13,24 @@ is built into the bundle and served from the same origin as the app.
 | --- | --- | --- | --- |
 | [opentype.js](https://github.com/opentypejs/opentype.js) | 2.0.0 | MIT | Reading `.ttf` files and turning text into glyph outlines |
 | [signature_pad](https://github.com/szimek/signature_pad) | 5.1.4 | MIT | Smoothing pointer input into curves, and weighting them by pen speed |
+| [@cantoo/pdf-lib](https://github.com/cantoo-scribe/pdf-lib) | 2.11.0 | MIT | Reading a PDF and writing the signature onto one of its pages |
+| [pdfjs-dist](https://github.com/mozilla/pdf.js) | 6.3.289 | Apache-2.0 | Drawing a page on screen so the signature can be positioned on it |
 
-Both MIT and the AGPL-3.0-or-later are satisfied by shipping the notices; MIT
-imposes no copyleft obligation on this project.
+MIT and the AGPL-3.0-or-later are satisfied by shipping the notices; MIT imposes
+no copyleft obligation on this project. Apache-2.0 is one-way compatible with
+the AGPL-3.0-or-later, which is the direction needed here: Apache-licensed code
+may be included in an AGPL work.
+
+`@cantoo/pdf-lib` is a maintained fork of [pdf-lib](https://github.com/Hopding/pdf-lib),
+which has had no release since 2021. The fork is used rather than the original
+because it appends changes to a PDF as an incremental update instead of
+rewriting the file — which is what a document timestamp will need, and what
+keeps an existing document's own bytes intact.
+
+PDF.js is used only to *display* a page. Nothing it renders is written into the
+saved document, and its worker is served from this origin: its own default is a
+CDN, which would be both a third-party request and a dependency on being
+online, so the app sets the worker path explicitly.
 
 ## Fonts
 

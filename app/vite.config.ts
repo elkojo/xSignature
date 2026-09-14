@@ -16,4 +16,11 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
   },
+  ssr: {
+    // Only the Node-side dev scripts take this path; the browser build never
+    // does. pdf-lib's ES build imports its font metrics as JSON, which Node
+    // refuses to load without an import attribute nothing here can add — so it
+    // goes through Vite instead, which reads JSON without argument.
+    noExternal: ['@cantoo/pdf-lib'],
+  },
 });

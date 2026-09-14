@@ -9,5 +9,15 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    server: {
+      deps: {
+        // pdf-lib's ES build imports its bundled font metrics as JSON. Left
+        // external, Node loads those files itself and refuses them without an
+        // import attribute it has no way to add. Inlining hands them to Vite,
+        // which reads JSON without ceremony, and keeps the suite working on
+        // every Node this project supports rather than only the newest.
+        inline: ['@cantoo/pdf-lib'],
+      },
+    },
   },
 });

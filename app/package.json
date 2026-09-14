@@ -17,7 +17,8 @@
     "fonts:vendor": "node scripts/vendor-fonts.mjs",
     "dump:type": "vite-node scripts/dump-type-svg.ts",
     "dump:draw": "vite-node scripts/dump-draw-svg.ts",
-    "check:png": "echo \"npm run dev, then open http://localhost:5173/scripts/png-check.html and read the console\""
+    "check:png": "echo \"npm run dev, then open http://localhost:5173/scripts/png-check.html and read the console\"",
+    "dump:stamp": "vite-node scripts/dump-stamp-pdf.ts"
   },
   "devDependencies": {
     "@expo-google-fonts/allura": "^0.4.2",
@@ -39,7 +40,9 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
+    "@cantoo/pdf-lib": "^2.11.0",
     "opentype.js": "^2.0.0",
+    "pdfjs-dist": "^6.3.289",
     "signature_pad": "^5.1.4"
   }
 }

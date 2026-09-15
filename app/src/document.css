@@ -99,6 +99,12 @@
   border-style: solid;
   border-color: rgba(16, 32, 26, 0.18);
   background: rgba(255, 255, 255, 0.72);
+  /*
+   * A form XObject is clipped to its bounding box, so the page clips too. The
+   * preview has to clip the same way or it can show text that the saved file
+   * cuts off — which is the preview lying about the one thing it is for.
+   */
+  overflow: hidden;
 }
 
 .overlay.block:hover,

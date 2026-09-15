@@ -43,7 +43,7 @@ import { appearanceMatrix } from '../../place/placement';
 import type { Rotation } from '../../place/placement';
 import { hexToRgb } from '../../stamp/stamp';
 import { pathOperators } from '../../stamp/path-ops';
-import { detailLines, layoutBlock, type Box } from './layout';
+import { detailLines, layoutBlock, type Box, type BlockLayout } from './layout';
 
 /** The signature to show, in whichever form it arrived. */
 export type BlockSignature =
@@ -164,6 +164,53 @@ export function fitTextSize(
 }
 
 /**
+ * Lay the block out at a size its text actually fits into.
+ *
+ * Two passes, and both are needed: the first finds how wide the text column is,
+ * which depends on nothing but the block's own proportions, and the second lays
+ * it out again at whatever size fits that column.
+ *
+ * Exported because the interface draws this block too, as a preview, and the
+ * preview has to be the same shape as the page or it is not a preview. Having
+ * two copies of this arithmetic is precisely how the preview came to draw text
+ * at a size the page would never use.
+ */
+export function fitBlock(options: {
+  readonly width: number;
+  readonly height: number;
+  readonly signature: { width: number; height: number };
+  readonly logo?: { width: number; height: number };
+  readonly lines: readonly string[];
+  readonly font: Font;
+  readonly fontSize?: number;
+}): { layout: BlockLayout; fontSize: number; fits: boolean } {
+  const preferred = options.fontSize ?? 7;
+  const shape = (fontSize: number) =>
+    layoutBlock({
+      width: options.width,
+      height: options.height,
+      signature: options.signature,
+      logo: options.logo,
+      lines: options.lines.length,
+      fontSize,
+    });
+
+  const provisional = shape(preferred);
+  const fitted = fitTextSize(
+    options.font,
+    options.lines,
+    provisional.textColumn?.width ?? 0,
+    preferred,
+  );
+
+  return {
+    layout: fitted.size === preferred ? provisional : shape(fitted.size),
+    fontSize: fitted.size,
+    fits: fitted.fits,
+  };
+}
+
+/**
  * Build the appearance, and give back the reference to put in the widget.
  *
  * Registers whatever images the block needs as resources of the XObject itself,
@@ -172,40 +219,16 @@ export function fitTextSize(
  */
 export function buildAppearance(doc: PDFDocument, options: BlockOptions): PDFRef {
   const { width, height, signature, logo, details, font } = options;
-  const preferred = options.fontSize ?? 7;
   const lines = detailLines(details);
-
-  // Laid out once to find out how wide the text column is, then again at
-  // whatever size fits it. Cheaper than it looks — the layout is arithmetic —
-  // and it means the block is measured against its own column rather than
-  // against a guess about one.
-  const provisional = layoutBlock({
+  const { layout, fontSize } = fitBlock({
     width,
     height,
     signature: { width: signature.width, height: signature.height },
     logo: logo ? { width: logo.width, height: logo.height } : undefined,
-    lines: lines.length,
-    fontSize: preferred,
-  });
-
-  const fontSize = fitTextSize(
-    font,
     lines,
-    provisional.textColumn?.width ?? 0,
-    preferred,
-  ).size;
-
-  const layout =
-    fontSize === preferred
-      ? provisional
-      : layoutBlock({
-          width,
-          height,
-          signature: { width: signature.width, height: signature.height },
-          logo: logo ? { width: logo.width, height: logo.height } : undefined,
-          lines: lines.length,
-          fontSize,
-        });
+    font,
+    fontSize: options.fontSize ?? 7,
+  });
 
   const operators: PDFOperator[] = [];
   const resources: Record<string, unknown> = {};

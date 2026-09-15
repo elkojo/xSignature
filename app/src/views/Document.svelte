@@ -60,9 +60,9 @@
     type SignedPdf,
     type TimestampSource,
   } from '../lib/document/certificate/sign/apply';
-  import { buildAppearance, fitTextSize } from '../lib/document/certificate/appearance/block';
+  import { buildAppearance, fitBlock } from '../lib/document/certificate/appearance/block';
   import { loadAppearanceFont } from '../lib/document/certificate/appearance/font';
-  import { blockHeightFor, detailLines, layoutBlock } from '../lib/document/certificate/appearance/layout';
+  import { blockHeightFor, detailLines } from '../lib/document/certificate/appearance/layout';
   import { widgetRect } from '../lib/document/place/placement';
   import { unsupportedCharacters } from '../lib/signature/type/coverage';
   import type { Font } from 'opentype.js';
@@ -852,46 +852,46 @@
    * size it is shown, so the preview is the result rather than a drawing of it.
    */
   let blockPreview = $derived.by(() => {
-    if (!placingBlock || !overlay || !box || !geometry) return null;
+    if (!placingBlock || !overlay || !box || !geometry || !blockFont) return null;
 
     // The block is laid out in points on the page and shown in pixels on
-    // screen. One ratio between the two carries the text size across, so the
-    // preview's proportions are the page's.
+    // screen. One ratio carries sizes across, so the preview's proportions are
+    // the page's — and the layout itself is the same function the page uses,
+    // which is what keeps the two from drifting apart.
     const onPage = span * displayedSize(geometry).width;
     const toScreen = onPage > 0 ? overlay.width / onPage : 1;
 
-    return layoutBlock({
-      width: overlay.width,
-      height: overlay.height,
+    const fitted = fitBlock({
+      width: overlay.width / toScreen,
+      height: overlay.height / toScreen,
       signature: box,
       logo: logoSize ?? undefined,
-      lines: blockLines.length,
-      fontSize: BLOCK_FONT_SIZE * toScreen,
+      lines: blockLines,
+      font: blockFont,
+      fontSize: BLOCK_FONT_SIZE,
     });
+
+    // Back into screen pixels, once, at the end.
+    const scale = (value: number) => value * toScreen;
+    return {
+      signature: scaleBox(fitted.layout.signature, scale),
+      logo: fitted.layout.logo ? scaleBox(fitted.layout.logo, scale) : null,
+      baselines: fitted.layout.baselines.map((b) => ({ x: scale(b.x), y: scale(b.y) })),
+      fontSize: scale(fitted.fontSize),
+      fits: fitted.fits,
+    };
+  });
+
+  const scaleBox = (box: { x: number; y: number; width: number; height: number }, by: (n: number) => number) => ({
+    x: by(box.x),
+    y: by(box.y),
+    width: by(box.width),
+    height: by(box.height),
   });
 
   /** In points, the size the block's details are set at on the page. */
   const BLOCK_FONT_SIZE = 7;
 
-  /**
-   * Whether the details still fit once shrunk as far as is readable.
-   *
-   * The block clips what does not fit, so a reason too long for it would be cut
-   * off mid-word inside a signed document. The text is made smaller to avoid
-   * that, and when it cannot be made small enough the reader is told rather
-   * than handed something illegible.
-   */
-  let textFit = $derived.by(() => {
-    if (!placingBlock || !blockFont || !blockPreview?.textColumn || !geometry) return null;
-    const onPage = span * displayedSize(geometry).width;
-    const toScreen = blockPreview.textColumn.width / onPage;
-    return fitTextSize(
-      blockFont,
-      blockLines,
-      toScreen > 0 ? blockPreview.textColumn.width / toScreen : 0,
-      BLOCK_FONT_SIZE,
-    );
-  });
 
   function readableSize(value: number): string {
     if (value < 1024) return `${value} bytes`;
@@ -1178,8 +1178,7 @@
                         <span
                           class="block-line"
                           style="left: {blockPreview.baselines[index].x}px; top: {blockPreview
-                            .baselines[index].y}px; font-size: {BLOCK_FONT_SIZE *
-                          (overlay.width / (span * displayedSize(geometry!).width))}px"
+                            .baselines[index].y}px; font-size: {blockPreview.fontSize}px"
                         >
                           {line}
                         </span>
@@ -1430,7 +1429,7 @@
                       <div class="notice bad">{fontError}</div>
                     {/if}
 
-                    {#if textFit && !textFit.fits}
+                    {#if blockPreview && !blockPreview.fits}
                       <div class="notice warn">
                         <strong>There is more text here than the block can hold.</strong>
                         It has been made as small as it can usefully be and still does not fit.

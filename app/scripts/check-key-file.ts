@@ -26,7 +26,7 @@ import { basename } from 'node:path';
 import { CryptoEngine, setEngine } from 'pkijs';
 
 import { detectKeyFile } from '../src/lib/document/certificate/read/detect';
-import { validityAt } from '../src/lib/document/certificate/read/identity';
+import { UnreadableKeyFile, validityAt } from '../src/lib/document/certificate/read/identity';
 import { readKeyFile } from '../src/lib/document/certificate/read/read';
 
 // Node exposes Web Crypto globally only from version 19, and this project
@@ -76,7 +76,19 @@ if (password === undefined) {
   process.exit(1);
 }
 
-const identities = await readKeyFile(name, bytes, password, detected);
+let identities;
+try {
+  identities = await readKeyFile(name, bytes, password, detected);
+} catch (cause) {
+  // A wrong password is the expected failure here, not an exceptional one, so
+  // it is reported the way the app would report it rather than as a stack.
+  if (cause instanceof UnreadableKeyFile) {
+    console.error(`\n  ${cause.problem}: ${cause.message}\n`);
+    process.exit(1);
+  }
+  throw cause;
+}
+
 console.log(`\n  ${identities.length} identit${identities.length === 1 ? 'y' : 'ies'} inside:\n`);
 
 for (const identity of identities) {

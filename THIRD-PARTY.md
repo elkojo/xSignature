@@ -18,6 +18,7 @@ is built into the bundle and served from the same origin as the app.
 | [pkijs](https://github.com/PeculiarVentures/PKI.js) | 3.4.0 | BSD-3-Clause | Building the RFC 3161 timestamp request and reading the reply |
 | [asn1js](https://github.com/PeculiarVentures/ASN1.js) | 3.0.10 | BSD-3-Clause | The ASN.1 encoding underneath it |
 | [marked](https://github.com/markedjs/marked) | 18.0.13 | MIT | Parsing Markdown, so a `.md` can be set as a PDF without a converter |
+| [node-forge](https://github.com/digitalbazaar/forge) | 1.4.0 | BSD-3-Clause | Opening key files a certificate authority encrypted the old way |
 
 MIT and the AGPL-3.0-or-later are satisfied by shipping the notices; MIT imposes
 no copyleft obligation on this project. Apache-2.0 is one-way compatible with
@@ -29,6 +30,26 @@ which has had no release since 2021. The fork is used rather than the original
 because it appends changes to a PDF as an incremental update instead of
 rewriting the file — which is what a document timestamp will need, and what
 keeps an existing document's own bytes intact.
+
+node-forge is dual-licensed BSD-3-Clause or GPL-2.0; this project takes the
+BSD-3-Clause branch, which the AGPL-3.0-or-later may include.
+
+It is also the only entry in this table that is **not** downloaded when the app
+loads. It is fetched at the moment somebody opens a key file that turns out to
+need it, and never otherwise.
+
+That it is needed at all is a fact about certificate authorities rather than a
+preference. WebCrypto implements neither RC2 nor 3DES and never will, and PKI.js
+implements only PBES2 — so between them they open a `.p12` written by a current
+OpenSSL and nothing older. Real exports are older: a PostSignum file protects
+its private key with 3DES and its certificates with RC2-40. Without this
+library, the files people actually hold could not be opened at all.
+
+What it is allowed to do is narrow. It decrypts the container, hands over the
+private key as ordinary PKCS#8, and stops. That key is imported into WebCrypto
+as non-extractable before anything else sees it, so every signature this app
+makes is made by the platform, and the key cannot be read back out — by
+node-forge, by this app, or by a page running beside it.
 
 PKI.js reads and writes the ASN.1 structures a timestamp is made of, and checks
 one on the way back in. It does

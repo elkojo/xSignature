@@ -11,3 +11,16 @@ draw-dump.svg
 # They are notes to whoever (or whatever) is building it, not documentation for
 # anyone reading the source. What a contributor needs is in README.md.
 CLAUDE.md
+
+# Key material, which never belongs in this repository.
+#
+# Test certificates live on the machine that is building the app and nowhere
+# else. A .p12 carries a private key; committing one publishes it, and a public
+# AGPL repository is the worst possible place for that to happen. The rule is
+# the extension rather than the filename, so a new test file is covered before
+# anyone remembers to add it.
+*.p12
+*.pfx
+*.jks
+*.pem
+*.key

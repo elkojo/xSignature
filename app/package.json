@@ -18,7 +18,8 @@
     "dump:type": "vite-node scripts/dump-type-svg.ts",
     "dump:draw": "vite-node scripts/dump-draw-svg.ts",
     "check:png": "echo \"npm run dev, then open http://localhost:5173/scripts/png-check.html and read the console\"",
-    "dump:stamp": "vite-node scripts/dump-stamp-pdf.ts"
+    "dump:stamp": "vite-node scripts/dump-stamp-pdf.ts",
+    "check:key": "vite-node scripts/check-key-file.ts"
   },
   "devDependencies": {
     "@expo-google-fonts/allura": "^0.4.2",
@@ -31,6 +32,7 @@
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
     "@tsconfig/svelte": "^5.0.4",
     "@types/node": "^22.20.2",
+    "@types/node-forge": "^1.3.14",
     "@types/opentype.js": "^1.3.10",
     "happy-dom": "^20.14.5",
     "svelte": "^5.0.0",
@@ -44,6 +46,7 @@
     "@cantoo/pdf-lib": "^2.11.0",
     "asn1js": "^3.0.10",
     "marked": "^18.0.13",
+    "node-forge": "^1.4.0",
     "opentype.js": "^2.0.0",
     "pdfjs-dist": "^6.3.289",
     "pkijs": "^3.4.0",

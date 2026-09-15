@@ -32,3 +32,12 @@ CLAUDE.md
 # Anchored to the root so the committed fixtures under app/src stay tracked:
 # those are deliberate, and signed by throwaway keys.
 /*.pdf
+
+# And documents dropped in the root to try something out. A signature image is
+# somebody's signature; a .svg of one in a public repository is that signature
+# published. Anchored to the root so app/public/favicon.svg and the bundled
+# assets stay tracked.
+/*.svg
+/*.png
+/*.jpg
+/*.jpeg

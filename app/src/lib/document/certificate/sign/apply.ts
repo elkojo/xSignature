@@ -21,7 +21,7 @@
  * If step 5 fails, nothing has been written anywhere and the caller still holds
  * the unsigned PDF.
  */
-import { PDFDocument } from '@cantoo/pdf-lib';
+import { PDFDocument, type PDFRef } from '@cantoo/pdf-lib';
 
 import { addSignatureField } from '../../pdf/sig-field';
 import {
@@ -44,8 +44,19 @@ export interface SignedPdf {
 }
 
 export interface SignOptions extends SignatureDetails {
-  /** Which page the (invisible) field is attached to. Defaults to the first. */
+  /** Which page the field is attached to. Defaults to the first. */
   readonly page?: number;
+  /**
+   * Where a visible signature is drawn, in PDF user space on that page.
+   *
+   * Absent means an invisible signature: the field still exists and still
+   * covers the document, but nothing is painted. That is a real choice rather
+   * than a lesser one — an invisible signature makes exactly the same
+   * assertion, and does not put a picture on a page that may not want one.
+   */
+  readonly rect?: readonly [number, number, number, number];
+  /** The appearance stream to show in that rectangle. */
+  readonly appearance?: PDFRef;
 }
 
 /** The token did not fit the space reserved for it, and nothing was written. */
@@ -78,6 +89,8 @@ export async function applyCertificateSignature(
   addSignatureField(doc, signatureDictionary(doc, { ...options, signingTime }), {
     page: options.page ?? 0,
     name: 'Signature',
+    rect: options.rect,
+    appearance: options.appearance,
   });
 
   // `useObjectStreams: false` is not a preference. A signature dictionary may

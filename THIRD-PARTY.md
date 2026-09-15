@@ -69,10 +69,11 @@ online, so the app sets the worker path explicitly.
 ## Fonts
 
 Every bundled face is licensed under the **SIL Open Font License 1.1**. Each
-`.ttf` ships with its own licence text beside it in
-`app/src/lib/signature/fonts/`, named after the font file, and
-`app/src/lib/signature/fonts/README.md` records which npm package and which
-upstream version each file came from.
+`.ttf` ships with its own licence text beside it, named after the font file,
+and a README beside those records which npm package and which upstream version
+each file came from. The signature faces are in
+`app/src/lib/signature/fonts/`; the text face used by a visible signature's
+details block is in `app/src/lib/document/certificate/appearance/fonts/`.
 
 | Font | File | Copyright |
 | --- | --- | --- |
@@ -83,12 +84,28 @@ upstream version each file came from.
 | Parisienne | `Parisienne-Regular.ttf` | 2011 Alejandro Paul (Sudtipos) |
 | Sacramento | `Sacramento-Regular.ttf` | 2012 Brian J. Bonislawsky DBA Astigmatic, with Reserved Font Name "Sacramento" |
 | Mr De Haviland | `MrDeHaviland-Regular.ttf` | 2012 Brian J. Bonislawsky DBA Astigmatic |
+| Inter | `Inter-Regular-Latin.ttf` | 2020 The Inter Project Authors |
 
-All seven are OFL-1.1.
+All eight are OFL-1.1.
 
-The fonts are copied verbatim — not subset, not re-encoded, not renamed — so
-the Reserved Font Name clause is satisfied. A font whose licence has not been
-read is never added: `npm run fonts:vendor` refuses to bundle a file whose
+The seven signature faces are copied verbatim — not subset, not re-encoded, not
+renamed — so the Reserved Font Name clause is satisfied for those that declare
+one.
+
+**Inter is the exception, and is subset.** It carries Basic Latin, Latin-1
+Supplement and Latin Extended-A, which is what lets a visible signature spell a
+Czech, Polish or Hungarian name; the full face costs 342 kB to the subset's
+93 kB. Subsetting is a modification, so it is worth being exact about why it is
+permitted here: Inter's copyright line declares **no** Reserved Font Name —
+unlike, say, Sacramento, which reserves its own — so the OFL's renaming
+requirement does not apply. The licence travels with the file and the subset
+stays under the OFL, which is the rest of what the licence asks.
+
+It is not offered as a signature face, and lives in its own directory so that
+nothing enumerating the signature faces can reach it.
+
+A font whose licence has not been read is never added: `npm run fonts:vendor`
+refuses to bundle a file whose
 accompanying licence is not the OFL, which is what caught these packages
 shipping MIT at `LICENSE` and the font's real licence at `LICENSE_FONT`.
 

@@ -57,6 +57,11 @@ function nameEntry(text: string, key: string): string | null {
  * the kind of text a reason contains.
  */
 function stringEntry(text: string, key: string): string | null {
+  // A text string may also be written as hex, and has to be when it carries
+  // anything outside Latin-1 — `<FEFF…>` is UTF-16BE behind a byte-order mark.
+  const hex = new RegExp(`/${key}\\s*<([0-9a-fA-F\\s]*)>`).exec(text);
+  if (hex) return decodeHexString(hex[1]);
+
   const at = new RegExp(`/${key}\\s*\\(`).exec(text);
   if (!at) return null;
 
@@ -77,6 +82,36 @@ function stringEntry(text: string, key: string): string | null {
     out += character;
   }
   return null;
+}
+
+/**
+ * A PDF hex string as text.
+ *
+ * With a `FEFF` byte-order mark it is UTF-16BE, which is how anything outside
+ * Latin-1 has to be written; without one it is PDFDocEncoding, near enough
+ * Latin-1 to decode as such.
+ */
+function decodeHexString(hex: string): string {
+  const bytes = parseHexRaw(hex);
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    let out = '';
+    for (let i = 2; i + 1 < bytes.length; i += 2) {
+      out += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+    }
+    return out;
+  }
+  return new TextDecoder('latin1').decode(bytes);
+}
+
+/** Hex to bytes, with no trailing-zero trimming. */
+function parseHexRaw(hex: string): Uint8Array {
+  const clean = hex.replace(/[^0-9a-fA-F]/g, '');
+  const even = clean.length % 2 === 0 ? clean : clean.slice(0, -1);
+  const out = new Uint8Array(even.length / 2);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = Number.parseInt(even.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
 }
 
 function parseHex(hex: string): Uint8Array {

@@ -63,8 +63,17 @@ jobs:
       - name: Check every bundled font ships its licence
         # The OFL requires the licence to travel with the font. It is committed
         # beside each .ttf; this catches a face added without one.
+        #
+        # Every .ttf anywhere under src/, not just the signature faces: the
+        # appearance block's text face lives in its own directory, and a check
+        # that only knows one directory would not have noticed it.
         run: |
-          for ttf in src/lib/signature/fonts/*.ttf; do
+          found=0
+          while IFS= read -r ttf; do
+            found=$((found + 1))
             licence="${ttf%.ttf}.OFL.txt"
             test -f "$licence" || { echo "::error::$ttf has no licence beside it"; exit 1; }
-          done
+          done < <(find src -name '*.ttf')
+          test "$found" -gt 0 || { echo '::error::no bundled fonts found — has the layout moved?'; exit 1; }
+          echo "$found bundled fonts, each with its licence"
+

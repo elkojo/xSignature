@@ -83,11 +83,31 @@ export async function makeKeyFiles(options: KeyFileOptions = {}): Promise<KeyFil
   certificate.validity.notBefore = options.notBefore ?? new Date(Date.UTC(2020, 0, 1));
   certificate.validity.notAfter = options.notAfter ?? new Date(Date.UTC(2039, 0, 1));
 
-  const name = [
-    { name: 'commonName', value: commonName },
-    { name: 'organizationName', value: 'xSignature' },
+  // Explicitly UTF8String, and the plain string — node-forge encodes it.
+  //
+  // Not a preference. Left to its default tag, forge writes the DER length in
+  // characters while writing the content in bytes for anything outside ASCII.
+  // The structure is then malformed, the MAC covers the malformed bytes, and
+  // the file opens in neither this app nor OpenSSL. Since the names this
+  // fixture exists to test are Czech, that would make the interesting test
+  // impossible to write.
+  //
+  // Encoding the value by hand as well double-encodes it: the certificate then
+  // parses, and reads back as "JiÅÃ­ NovÃ¡k".
+  //
+  // Both are faults in *writing* a certificate, not in reading one. A real
+  // authority encodes this correctly, which is why PostSignum's file opens.
+  const utf8 = (value: string) => ({
+    value,
+    valueTagClass: forge.asn1.Type.UTF8 as unknown as number,
+  });
+
+  const name: forge.pki.CertificateField[] = [
+    { name: 'commonName', ...utf8(commonName) },
+    { name: 'organizationName', ...utf8('xSignature') },
     { name: 'countryName', value: 'CZ' },
   ];
+
   certificate.setSubject(name);
   certificate.setIssuer(name);
   certificate.sign(privateKey, forge.md.sha256.create());

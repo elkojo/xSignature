@@ -18,6 +18,7 @@
  */
 import { PDFHexString, PDFName, PDFString, type PDFDict, type PDFDocument } from '@cantoo/pdf-lib';
 
+
 import { CONTENTS_HEX_BYTES } from '../../timestamp/byte-range';
 
 export interface SignatureDetails {
@@ -48,6 +49,24 @@ export function pdfDate(when: Date): string {
 }
 
 /**
+ * A PDF text string that can carry any text, not only Latin-1.
+ *
+ * A literal `(string)` is PDFDocEncoding — one byte a character. Handed "Jiří",
+ * the writer keeps the low byte of each code point and writes "JiYí": `ř` is
+ * U+0159, and 0x59 is `Y`. It does not fail, it does not warn, and the document
+ * then states a name that is not the signer's.
+ *
+ * PDF's answer is UTF-16BE behind a byte-order mark, written as a hex string,
+ * which `PDFHexString.fromText` produces. That is used whenever the text needs
+ * it and not otherwise, so a signature with an ASCII name stays readable in the
+ * file rather than turning into a wall of hex.
+ */
+function textString(value: string): PDFString | PDFHexString {
+  // eslint-disable-next-line no-control-regex
+  return /^[\x20-\x7e]*$/.test(value) ? PDFString.of(value) : PDFHexString.fromText(value);
+}
+
+/**
  * Build the signature dictionary, with its `/Contents` hole reserved.
  *
  * The hole and the `/ByteRange` placeholder are the same ones a document
@@ -75,7 +94,7 @@ export function signatureDictionary(doc: PDFDocument, details: SignatureDetails)
     ['Location', details.location],
   ];
   for (const [key, value] of optional) {
-    if (value?.trim()) dictionary.set(PDFName.of(key), PDFString.of(value.trim()));
+    if (value?.trim()) dictionary.set(PDFName.of(key), textString(value.trim()));
   }
 
   return dictionary;

@@ -235,6 +235,58 @@
               </div>
             </div>
 
+            {#if result.claims && !result.isTimestamp}
+              <!--
+                The certificate's own statements, kept carefully apart from the
+                app's findings. "This certificate declares itself qualified" is
+                a fact about the file; "this signature is qualified" is a
+                judgement, and not one this app is entitled to make.
+              -->
+              <div class="notice">
+                <strong>What the certificate says about itself.</strong>
+                {#if result.claims.qualified}
+                  It declares that it is a <em>qualified certificate</em> under eIDAS{result.claims
+                    .purpose === 'signature'
+                    ? ', issued to a person for signing'
+                    : result.claims.purpose === 'seal'
+                      ? ', issued to an organisation for sealing'
+                      : ''}.
+                  {#if result.claims.onQualifiedDevice}
+                    It also declares that the private key is held on a qualified signature
+                    creation device.
+                  {:else}
+                    It does <strong>not</strong> declare that the private key is held on a
+                    qualified signature creation device — and a qualified electronic signature
+                    needs both. On that reading this is an advanced signature made with a
+                    qualified certificate, which is a real thing and not the same thing.
+                  {/if}
+                {:else}
+                  It makes no claim to being a qualified certificate under eIDAS.
+                  {#if result.claims.purpose === 'website'}
+                    It declares itself a website certificate, which is not meant for signing
+                    documents at all.
+                  {/if}
+                {/if}
+                {#if result.claims.limit}
+                  It declares a transaction limit of {result.claims.limit.value.toLocaleString()}
+                  {result.claims.limit.currency}.
+                {/if}
+                <br /><br />
+                These are the certificate authority's statements, read out of the certificate.
+                Nothing here checks whether they are true — that is the same judgement as below,
+                and needs the same trusted list this app does not have.
+              </div>
+
+              {#if result.claims.keyUsage.stated && !result.claims.keyUsage.digitalSignature && !result.claims.keyUsage.nonRepudiation}
+                <div class="notice warn">
+                  <strong>This certificate was not issued for signing.</strong>
+                  Its key usage permits neither digital signature nor non-repudiation, so whatever
+                  it was meant for, it was not this. The signature above is still mathematically
+                  sound; a reader that enforces key usage will reject it anyway.
+                </div>
+              {/if}
+            {/if}
+
             {#if result.timestamp && !result.timestamp.coversSignature}
               <!--
                 A token attached to a signature it does not describe would read

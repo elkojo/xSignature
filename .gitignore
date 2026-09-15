@@ -24,3 +24,11 @@ CLAUDE.md
 *.jks
 *.pem
 *.key
+
+# Documents used for testing, which live in the project root.
+#
+# A signed PDF carries the signer's certificate in the clear — name, email
+# address and personal identifier included — so committing one publishes them.
+# Anchored to the root so the committed fixtures under app/src stay tracked:
+# those are deliberate, and signed by throwaway keys.
+/*.pdf

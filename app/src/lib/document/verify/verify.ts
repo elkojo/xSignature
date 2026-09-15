@@ -36,6 +36,7 @@ import * as asn1js from 'asn1js';
 import { ContentInfo, SignedData, TSTInfo } from 'pkijs';
 
 import { digestedBytes } from '../timestamp/byte-range';
+import { claimsOf, type CertificateClaims } from './claims';
 import { findSignatures, isDocumentTimestamp, type FoundSignature } from './find';
 
 export type Verdict =
@@ -70,6 +71,13 @@ export interface CheckedSignature {
   readonly name: string | null;
   /** How many certificates the token carried, the signer's included. */
   readonly certificateCount: number;
+  /**
+   * What the signer's certificate declares about itself.
+   *
+   * Read out of the certificate, not decided here. Null when the token carried
+   * no certificate to read.
+   */
+  readonly claims: CertificateClaims | null;
   /**
    * A timestamp carried *inside* this signature, when it has one.
    *
@@ -122,6 +130,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
       signedBy: null,
       policy: null,
       certificateCount: 0,
+      claims: null,
       timestamp: null,
       detail: 'The token in this file could not be read.',
     };
@@ -147,6 +156,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
         signedBy: subjectOf(signed),
         policy: null,
         certificateCount: signed.certificates?.length ?? 0,
+        claims: claimsOfSigner(signed),
         timestamp: null,
         detail: 'The token in this file could not be read as a timestamp.',
       };
@@ -161,6 +171,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
     signedBy: subjectOf(signed),
     policy,
     certificateCount: signed.certificates?.length ?? 0,
+    claims: claimsOfSigner(signed),
     timestamp: await embeddedTimestampOf(signed),
   };
 
@@ -245,6 +256,12 @@ function signingTimeOf(signed: SignedData): Date | null {
     return value.toDate();
   }
   return null;
+}
+
+/** What the signing certificate declares, when there is one to read. */
+function claimsOfSigner(signed: SignedData): CertificateClaims | null {
+  const certificate = signed.certificates?.[0];
+  return certificate && 'subject' in certificate ? claimsOf(certificate) : null;
 }
 
 /** The signer's common name, or the whole subject if it has no CN. */

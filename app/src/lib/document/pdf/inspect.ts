@@ -1,17 +1,25 @@
 /**
- * Opening a PDF, and finding out whether it is safe to write on.
- *
- * Two of the answers here are refusals, and both matter more than they look.
+ * Opening a PDF, and finding out what may be done to it.
  *
  * An **encrypted** file cannot be re-saved without its password, so there is
  * nothing to do but say so.
  *
- * A file that **already carries a digital signature** is the dangerous one. The
- * library rewrites a PDF when it saves it rather than appending to it, and a
- * rewritten file no longer matches the byte ranges the existing signature was
- * computed over — so stamping it would silently invalidate a real signature and
- * hand back a document that looks fine and verifies as broken. Refusing is the
- * only honest option, and it has to be a refusal rather than a warning.
+ * A file that **already carries a signature** is not refused, but it is not
+ * ordinary either, and the difference is worth stating precisely. Rewriting
+ * such a file destroys what is already there — not invalidates, *destroys*:
+ * saving a two-signature document through the writer's ordinary path yields a
+ * document with no signatures at all, because the dictionaries do not survive
+ * the rewrite.
+ *
+ * Appending is different. A signature added as an incremental update leaves
+ * every earlier byte untouched, so the earlier signatures still describe the
+ * bytes they were computed over and still verify. That is what counter-signing
+ * is, and it is the only thing this app will do to a signed document: no ink
+ * on the page, no rewrite, only an appended signature.
+ *
+ * So this reports what the file already carries and leaves the choice to the
+ * caller, which is the part that knows whether it is about to append or
+ * rewrite.
  */
 import {
   EncryptedPDFError,
@@ -23,6 +31,7 @@ import {
 } from '@cantoo/pdf-lib';
 
 import { normalizeRotation, type PageGeometry } from '../place/placement';
+import { findSignatures, type FoundSignature } from '../verify/find';
 
 export type Unreadable = 'encrypted' | 'malformed' | 'signed';
 
@@ -41,6 +50,14 @@ export interface OpenPdf {
   readonly doc: PDFDocument;
   /** One entry per page, in order, ready for `placementMatrix`. */
   readonly pages: readonly PageGeometry[];
+  /**
+   * Signatures and timestamps the file already carried.
+   *
+   * Located, not judged — `verify/checkSignatures` says whether they hold.
+   * Empty for the ordinary case. When it is not empty the caller must append
+   * rather than rewrite, or it will destroy what is here.
+   */
+  readonly existing: readonly FoundSignature[];
 }
 
 /**
@@ -136,18 +153,14 @@ export async function openPdf(bytes: Uint8Array): Promise<OpenPdf> {
   // file is reported as damaged instead of surfacing a library TypeError the
   // reader can make nothing of.
   try {
-    if (hasSignatureField(doc)) {
-      throw new UnreadablePdf(
-        'signed',
-        'This PDF already carries a digital signature. Writing on it would break that signature, so it is left alone.',
-      );
-    }
-
     if (doc.getPageCount() === 0) {
       throw new UnreadablePdf('malformed', 'This PDF has no pages in it.');
     }
 
-    return { doc, pages: pageGeometries(doc) };
+    // Found in the original bytes, not in the parsed document: a signature
+    // covers a byte range, and the range is only meaningful against the file
+    // as it arrived.
+    return { doc, pages: pageGeometries(doc), existing: findSignatures(bytes) };
   } catch (cause) {
     if (cause instanceof UnreadablePdf) throw cause;
     throw new UnreadablePdf(

@@ -21,6 +21,20 @@ export interface FoundSignature {
   /** `/Type`, which is `DocTimeStamp` for a timestamp and `Sig` for a signature. */
   readonly type: string | null;
   /**
+   * What this signature permits to happen to the document afterwards.
+   *
+   * A signature may *certify* rather than merely approve, and a certifying one
+   * says how much later change it tolerates: `1` none at all, `2` form filling
+   * and further signatures, `3` those and annotations. `null` is the ordinary
+   * case — an approval signature, which restricts nothing and which every
+   * signature this app makes is.
+   *
+   * It matters when adding a second signature: doing so to a document whose
+   * first signer said "no changes" produces a file that readers reject, which
+   * is worse than refusing.
+   */
+  readonly permits: 1 | 2 | 3 | null;
+  /**
    * What the signer typed, read straight out of the dictionary.
    *
    * Covered by the signature, so nobody else can have changed them — and
@@ -167,6 +181,7 @@ export function findSignatures(pdf: Uint8Array): FoundSignature[] {
       token,
       subFilter: nameEntry(dictionary, 'SubFilter'),
       type: nameEntry(dictionary, 'Type'),
+      permits: docMdpLevel(dictionary),
       reason: stringEntry(dictionary, 'Reason'),
       location: stringEntry(dictionary, 'Location'),
       name: stringEntry(dictionary, 'Name'),
@@ -175,6 +190,24 @@ export function findSignatures(pdf: Uint8Array): FoundSignature[] {
   }
 
   return found;
+}
+
+/**
+ * The `/P` of a `/DocMDP` transform, when this signature carries one.
+ *
+ * Read out of the dictionary text rather than by walking objects, like
+ * everything else here. The two parts may be some way apart in the dictionary,
+ * so the method is found first and the permission looked for after it — a
+ * document may carry more than one signature and `/P` appears in other
+ * contexts.
+ */
+function docMdpLevel(text: string): 1 | 2 | 3 | null {
+  const method = /\/TransformMethod\s*\/DocMDP/.exec(text);
+  if (!method) return null;
+
+  const permission = /\/P\s+([123])\b/.exec(text.slice(method.index));
+  // A DocMDP with no /P means 2, which is the default the specification gives.
+  return permission ? (Number(permission[1]) as 1 | 2 | 3) : 2;
 }
 
 /**

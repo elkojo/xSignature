@@ -13,7 +13,9 @@ Three screens:
 - **Sign a document** — open a PDF, bring in a signature by pasting, dropping or
   choosing it, place it on a page and save the result. Plain text and Markdown
   are laid out as a PDF first, here on the device. Optionally sign it with your
-  own certificate, and optionally attach a timestamp.
+  own certificate, and optionally attach a timestamp. A document somebody has
+  already signed can be signed again, which is how a contract gets a second
+  party's name on it.
 - **Check a PDF** — read any PDF and report whether it carries a timestamp,
   whether the document still matches it, and whether anything was appended
   afterwards.
@@ -125,6 +127,25 @@ be covered by it. That is also what lets one be attached without disturbing the
 signature it describes. The Check screen reads it back and compares its imprint
 against the signature it is attached to — a real token from a real authority,
 over some other signature, would otherwise read as corroboration and be none.
+
+## Signing something already signed
+
+A contract signed by one party and sent to another is signed again, not
+replaced. The second signature is written as an incremental update: every byte
+the first signer covered is still there, unchanged, so their signature still
+holds and the new one covers the whole file including theirs.
+
+That only works if nothing is drawn on the page. Putting ink on a signed
+document means rewriting the file, and the signatures already on it do not
+survive that — not invalidated, *erased*: the dictionaries are gone from the
+result. So on an already-signed document the app offers a certificate signature
+and nothing else, and says why.
+
+Two things are checked before it will do it. A first signer may have certified
+the document and forbidden later changes, in which case adding a signature
+would produce a file readers reject, and the app refuses. And if a signature
+already on the document does not hold, it says so before you put your name
+next to it.
 
 ## Formats
 

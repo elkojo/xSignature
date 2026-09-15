@@ -66,6 +66,14 @@ export interface CheckedSignature {
   readonly policy: string | null;
   /** True when this is a document timestamp rather than a signature of identity. */
   readonly isTimestamp: boolean;
+  /**
+   * What this signature permits to happen to the document afterwards.
+   *
+   * `null` for an ordinary approval signature, which restricts nothing. A
+   * certifying one says how much later change it tolerates, and `1` means none
+   * — so nothing may be added to such a document, counter-signature included.
+   */
+  readonly permits: 1 | 2 | 3 | null;
   /** What the signer typed into the signature, if anything. Not checked. */
   readonly reason: string | null;
   readonly location: string | null;
@@ -120,6 +128,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
   const isTimestamp = isDocumentTimestamp(signature);
   const shared = {
     isTimestamp,
+    permits: signature.permits,
     kind: (isTimestamp ? 'timestamp' : 'signature') as 'timestamp' | 'signature',
     reason: signature.reason,
     location: signature.location,

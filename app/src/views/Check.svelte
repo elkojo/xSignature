@@ -339,15 +339,36 @@
             {/if}
 
             {#if !result.coversToEndOfFile}
-              <div class="notice warn">
-                <strong>
-                  Something was added after this was {result.isTimestamp ? 'stamped' : 'signed'}.
-                </strong>
-                It does not reach the end of the file, so part of what you would see on opening it
-                is not covered by anything above. That is normal when a document was signed and
-                then timestamped, and it is also how a document is made to show one thing while
-                being signed as another — so it is worth knowing which of the two happened here.
-              </div>
+              {@const next = (checked ?? [])[index + 1]}
+              {#if next && next.covers > result.covers}
+                <!--
+                  When what came afterwards is itself a signature covering this
+                  one, the file says what was added and there is no need to
+                  leave the reader guessing.
+                -->
+                <div class="notice">
+                  <strong>
+                    What was added after this is the
+                    {next.isTimestamp ? 'timestamp' : 'signature'} below{next.signedBy
+                      ? `, by ${next.signedBy}`
+                      : ''}.
+                  </strong>
+                  That is what a document signed by more than one party looks like: each
+                  signature covers everything before it, and the last one covers the whole file.
+                  Nothing here was changed behind anyone's back.
+                </div>
+              {:else}
+                <div class="notice warn">
+                  <strong>
+                    Something was added after this was {result.isTimestamp ? 'stamped' : 'signed'},
+                    and it is not another signature.
+                  </strong>
+                  It does not reach the end of the file, so part of what you would see on opening
+                  it is not covered by anything above. That is how a document is made to show one
+                  thing while being signed as another, and it is worth finding out what the
+                  addition was.
+                </div>
+              {/if}
             {/if}
 
             <!--

@@ -96,21 +96,31 @@ describe('openPdf', () => {
     expect(open.pages[0]).toMatchObject({ width: 595, height: 842, rotation: 0 });
   });
 
-  it('refuses a document that is already signed, rather than quietly breaking it', async () => {
-    const doc = await blank();
-    withForm(doc, [{ FT: 'Sig', T: 'Signature1' }]);
+  it('opens a document that is already signed, and says what it carries', async () => {
+    // It used to refuse. Rewriting a signed PDF really does destroy what is
+    // there — but appending to one does not, and that is what counter-signing
+    // is. So the danger is reported and the caller decides, rather than every
+    // signed document being turned away.
+    const { PDFDocument } = await import('@cantoo/pdf-lib');
+    const { applyCertificateSignature } = await import('../certificate/sign/apply');
+    const { makeKeyFiles } = await import('../certificate/read/fixtures/make-keys');
+    const { readKeyFile } = await import('../certificate/read/read');
 
-    await expect(openPdf(await bytes(doc))).rejects.toMatchObject({
-      name: 'UnreadablePdf',
-      kind: 'signed',
-    });
-  });
+    const keys = await makeKeyFiles({ commonName: 'First Signer' });
+    const [identity] = await readKeyFile('k.p12', keys.modern, keys.password);
+    const base = await PDFDocument.create();
+    base.addPage([595, 842]);
+    const signed = await applyCertificateSignature(await base.save(), identity);
 
-  it('explains why, in the app voice, rather than throwing a library error', async () => {
-    const doc = await blank();
-    withForm(doc, [{ FT: 'Sig', T: 'Signature1' }]);
+    const open = await openPdf(signed.bytes);
+    expect(open.existing).toHaveLength(1);
+    expect(open.existing[0].type).toBe('Sig');
+    expect(open.pages).toHaveLength(1);
+  }, 60_000);
 
-    await expect(openPdf(await bytes(doc))).rejects.toThrow(/break that signature/);
+  it('reports an ordinary document as carrying nothing', async () => {
+    const open = await openPdf(await bytes(await blank()));
+    expect(open.existing).toEqual([]);
   });
 
   it('reports damaged input as malformed', async () => {

@@ -46,6 +46,7 @@
   import { toPathData } from '../lib/signature/path';
   import { PDFDocument } from '@cantoo/pdf-lib';
   import { checkLinks, orderChain, readCertificates, type ChainLink } from '../lib/document/certificate/read/chain';
+  import { checkSignatures, type CheckedSignature } from '../lib/document/verify/verify';
   import {
     detectKeyFile,
     readKeyFile,
@@ -117,6 +118,10 @@
     try {
       opened = await openPdf(bytes!);
       page = 0;
+      // Located by `openPdf`, judged here: whether they still hold decides what
+      // the reader is told, and it is the one thing worth knowing before adding
+      // a name to a document somebody else has already signed.
+      existing = opened.existing.length > 0 ? await checkSignatures(bytes!) : [];
     } catch (cause) {
       openError =
         cause instanceof UnreadablePdf
@@ -126,6 +131,7 @@
   }
 
   function reset() {
+    existing = [];
     verdict = null;
     converted = false;
     bytes = null;
@@ -140,6 +146,27 @@
     fileName = '';
     if (fileInput) fileInput.value = '';
   }
+
+  /**
+   * Signatures the document already carried, checked.
+   *
+   * A document that is already signed can still be signed again — that is what
+   * counter-signing is, and it is how a contract gets a second party's name on
+   * it. What it cannot survive is being *rewritten*, which is what putting ink
+   * on the page would do: the writer reassembles the file, and the earlier
+   * signature dictionaries do not survive that. So when there is something
+   * here, the only thing offered is an appended signature.
+   */
+  let existing = $state<CheckedSignature[]>([]);
+
+  /** True when this document already carries a signature or a timestamp. */
+  let alreadySigned = $derived(existing.length > 0);
+
+  /** A first signer may forbid any later change. Then there is nothing to do. */
+  let sealed = $derived(existing.some((e) => e.permits === 1));
+
+  /** Counter-signing a document that has already been tampered with. */
+  let brokenBefore = $derived(existing.filter((e) => e.verdict === 'altered' || e.verdict === 'broken'));
 
   // ---- step 2: the signature ------------------------------------------------
 
@@ -624,6 +651,15 @@
   /** True when what gets placed is the block rather than the signature alone. */
   let placingBlock = $derived(wantCertificate && visibleBlock && identity !== null);
 
+  /**
+   * Whether the file may only be appended to, never rewritten.
+   *
+   * True for a visible certificate signature, whose ink lives in the block —
+   * and true for any document that already carries a signature, whatever else
+   * is being done to it.
+   */
+  let appendOnly = $derived(placingBlock || alreadySigned);
+
   // ---- the timestamp --------------------------------------------------------
 
   /**
@@ -752,10 +788,12 @@
       // document that was already stamped.
       const fresh = await openPdf(bytes);
 
-      if (placingBlock) {
-        // Nothing is drawn on the page: the signature goes inside the block,
-        // where it is part of what the signature covers rather than content
-        // that happens to sit underneath it.
+      if (appendOnly) {
+        // Nothing is drawn on the page. For a visible certificate signature
+        // that is because the ink belongs inside the block, where it is part
+        // of what the signature covers. For an already-signed document it is
+        // because drawing anything would mean rewriting the file, and the
+        // signatures already on it would not survive that.
       } else if (signature!.kind === 'vector') {
         applyStamp(fresh.doc, fresh.pages[page], {
           page,
@@ -782,7 +820,10 @@
       // A visible certificate signature carries the picture itself, so the
       // page is left alone above and the block is built instead. An invisible
       // one, or no certificate at all, means the picture goes on the page.
-      let out = placingBlock ? bytes : await fresh.doc.save();
+      // `save()` reassembles the file. On a document that already carries
+      // signatures that is not a modification but a demolition — they are gone
+      // from the result entirely — so it is never reached in that case.
+      let out = appendOnly ? bytes : await fresh.doc.save();
 
       if (wantCertificate && identity) {
         // With a certificate, a timestamp belongs *inside* the signature rather
@@ -864,9 +905,15 @@
       opened &&
         rect &&
         signature &&
+        // Nothing can be added to a document whose first signer forbade it.
+        !sealed &&
         // A certificate that was asked for but not opened is not a reason to
         // write an unsigned file quietly.
-        (!wantCertificate || (identity && (!visibleBlock || blockFont))),
+        (!wantCertificate || (identity && (!visibleBlock || blockFont))) &&
+        // On an already-signed document a certificate is the only thing this
+        // app can add. Without one there is nothing to save that would not
+        // destroy what is there.
+        (!alreadySigned || (wantCertificate && identity)),
     ),
   );
 
@@ -1154,6 +1201,9 @@
               {#if placingBlock}
                 Drag the signature block to where it goes. Arrow keys nudge it; hold shift to move
                 further. The block is what lands on the page — your signature sits inside it.
+              {:else if alreadySigned}
+                This document is already signed, so nothing is drawn on the page. Choose a
+                certificate below; a visible signature puts your name in a block of its own.
               {:else}
                 Drag the signature to where it goes. Arrow keys nudge it; hold shift to move
                 further.
@@ -1262,6 +1312,57 @@
                 </div>
               {/if}
             </div>
+
+            {#if alreadySigned}
+              <!--
+                Said before anything else on this step: it changes what the
+                rest of it means. The ink-on-the-page option is gone, and the
+                reason is not a preference.
+              -->
+              {#if sealed}
+                <div class="notice bad">
+                  <strong>This document cannot be signed again.</strong>
+                  Whoever signed it first certified it and allowed no later changes. Adding a
+                  signature would produce a file that readers reject, so it is not offered. They
+                  would have to sign it again themselves, permitting signatures.
+                </div>
+              {:else}
+                <div class="notice">
+                  <strong>
+                    This document is already signed{existing.length > 1
+                      ? `, by ${existing.length} parties`
+                      : ''}.
+                  </strong>
+                  <span class="outgoing-list">
+                    {#each existing as e}
+                      <span>
+                        {e.verdict === 'intact' ? '✓' : '✗'}
+                        <strong>{e.signedBy ?? 'unnamed signer'}</strong>
+                        {e.kind === 'timestamp' ? '— a timestamp' : ''}
+                        {e.verdict === 'intact' ? '' : ` — ${e.verdict}`}
+                      </span>
+                    {/each}
+                  </span>
+                  Your signature is added after theirs, leaving every byte they signed untouched,
+                  so their signatures keep holding. Nothing can be drawn on the page — doing that
+                  means rewriting the file, and what is already on it would not survive. So a
+                  certificate is the only thing that can be added here.
+                </div>
+              {/if}
+
+              {#if brokenBefore.length > 0}
+                <div class="notice bad">
+                  <strong>
+                    {brokenBefore.length === 1
+                      ? 'The signature already on this document does not hold.'
+                      : 'Signatures already on this document do not hold.'}
+                  </strong>
+                  It was changed after it was signed. Signing it now would put your name on a
+                  document that has already been tampered with, and yours would be the only one
+                  that verifies. Check where it came from before adding anything.
+                </div>
+              {/if}
+            {/if}
 
             {#if !signature}
               <div class="notice">Bring in a signature above and it will appear on the page.</div>

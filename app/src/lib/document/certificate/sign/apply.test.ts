@@ -307,3 +307,64 @@ describe('the certificates a signature carries', () => {
     expect(checked.certificateCount).toBe(1);
   });
 });
+
+describe('counter-signing: a second party signing the same document', () => {
+  it('leaves the first signature holding, byte for byte', async () => {
+    // What a contract signed by two people actually is. The second signature is
+    // appended, so every byte the first one covers is still there and still
+    // says what it said.
+    const keys = await makeKeyFiles({ commonName: 'Bob Druhý' });
+    const [second] = await readKeyFile('b.p12', keys.modern, keys.password);
+
+    const first = await applyCertificateSignature(await blank(), identity, { name: 'Alice' });
+    const both = await applyCertificateSignature(first.bytes, second, { name: 'Bob' });
+
+    expect(Array.from(both.bytes.subarray(0, first.bytes.length))).toEqual(
+      Array.from(first.bytes),
+    );
+
+    const checked = await checkSignatures(both.bytes);
+    expect(checked).toHaveLength(2);
+    expect(checked.map((c) => c.verdict)).toEqual(['intact', 'intact']);
+    expect(checked.map((c) => c.signedBy)).toEqual(['Milan Seman', 'Bob Druhý']);
+  }, 60_000);
+
+  it('gives the second signature a field name of its own', async () => {
+    // Two fields sharing a name are one field to a reader, which would make the
+    // second signature look like it had replaced the first.
+    const keys = await makeKeyFiles({ commonName: 'Bob Druhý' });
+    const [second] = await readKeyFile('b.p12', keys.modern, keys.password);
+
+    const first = await applyCertificateSignature(await blank(), identity);
+    const both = await applyCertificateSignature(first.bytes, second);
+    const text = latin1(both.bytes);
+
+    expect(text).toContain('(Signature)');
+    expect(text).toContain('(Signature 2)');
+  }, 60_000);
+
+  it('covers everything the first signer signed, and then some', async () => {
+    const keys = await makeKeyFiles({ commonName: 'Bob Druhý' });
+    const [second] = await readKeyFile('b.p12', keys.modern, keys.password);
+
+    const first = await applyCertificateSignature(await blank(), identity);
+    const both = await applyCertificateSignature(first.bytes, second);
+    const [alice, bob] = await checkSignatures(both.bytes);
+
+    // Alice signed a prefix; Bob signed all of it including her signature.
+    expect(alice.coversToEndOfFile).toBe(false);
+    expect(bob.coversToEndOfFile).toBe(true);
+    expect(bob.covers).toBeGreaterThan(alice.covers);
+  }, 60_000);
+
+  it('is destroyed — not merely invalidated — by a rewrite', async () => {
+    // The reason nothing may be drawn on a signed page. The writer reassembles
+    // the file, and the signature dictionaries do not come back.
+    const { PDFDocument } = await import('@cantoo/pdf-lib');
+    const first = await applyCertificateSignature(await blank(), identity);
+    expect(await checkSignatures(first.bytes)).toHaveLength(1);
+
+    const reloaded = await PDFDocument.load(first.bytes, { updateMetadata: false });
+    expect(await checkSignatures(await reloaded.save())).toHaveLength(0);
+  }, 60_000);
+});

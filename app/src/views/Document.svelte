@@ -53,7 +53,13 @@
     type DetectedKeyFile,
     type Identity,
   } from '../lib/document/certificate/read/read';
-  import { applyCertificateSignature, SignatureTooLarge } from '../lib/document/certificate/sign/apply';
+  import {
+    applyCertificateSignature,
+    fromAuthority,
+    SignatureTooLarge,
+    type SignedPdf,
+    type TimestampSource,
+  } from '../lib/document/certificate/sign/apply';
   import { buildAppearance, fitTextSize } from '../lib/document/certificate/appearance/block';
   import { loadAppearanceFont } from '../lib/document/certificate/appearance/font';
   import { blockHeightFor, detailLines, layoutBlock } from '../lib/document/certificate/appearance/layout';
@@ -603,7 +609,8 @@
    */
   async function signWithCertificate(
     input: Uint8Array,
-  ): Promise<Uint8Array<ArrayBuffer>> {
+    timestamp?: TimestampSource,
+  ): Promise<SignedPdf> {
     const material = identity!;
     const details = {
       name: signerName || undefined,
@@ -612,8 +619,7 @@
     };
 
     if (!placingBlock) {
-      const result = await applyCertificateSignature(input, material, { ...details, page });
-      return result.bytes;
+      return applyCertificateSignature(input, material, { ...details, page, timestamp });
     }
 
     const doc = await PDFDocument.load(input, {
@@ -659,13 +665,13 @@
     });
 
     const withBlock = await doc.commit({ useObjectStreams: false });
-    const result = await applyCertificateSignature(withBlock, material, {
+    return applyCertificateSignature(withBlock, material, {
       ...details,
       page,
       rect: widgetRect(geometry!, rect!),
       appearance,
+      timestamp,
     });
-    return result.bytes;
   }
 
   async function save() {
@@ -718,7 +724,32 @@
       let out = placingBlock ? bytes : await fresh.doc.save();
 
       if (wantCertificate && identity) {
-        out = await signWithCertificate(out);
+        // With a certificate, a timestamp belongs *inside* the signature rather
+        // than appended after it: the authority stamps the signature value, so
+        // what is dated is the act of signing. It is also the same single
+        // request, filed differently — not a second one.
+        const source = wantTimestamp ? fromAuthority(endpoint!, (o) => (sent = o)) : undefined;
+
+        try {
+          const result = await signWithCertificate(out, source);
+          out = result.bytes;
+          stamped = result.timestamp;
+        } catch (cause) {
+          // The signature is the part worth keeping. If the authority cannot be
+          // reached, sign again without it and say so, rather than losing the
+          // signature over the optional half of it.
+          if (!source) throw cause;
+          timestampError =
+            cause instanceof Error
+              ? cause.message
+              : 'The timestamp could not be fetched, and the reason was not one the app recognises.';
+          sent = null;
+          out = (await signWithCertificate(out)).bytes;
+        }
+
+        downloadBlob(new Blob([out], { type: 'application/pdf' }), signedName());
+        saved = true;
+        return;
       }
 
       if (!wantTimestamp) {
@@ -1429,8 +1460,14 @@
                 <span>
                   <strong>Add a timestamp</strong>
                   <span class="check-note">
-                    Records that this exact file existed at a particular time. It records nothing
-                    about who made it.
+                    {#if wantCertificate && identity}
+                      Has an authority date your signature, so the time it was made does not rest
+                      on your own computer's clock. It goes inside the signature rather than
+                      beside it.
+                    {:else}
+                      Records that this exact file existed at a particular time. It records nothing
+                      about who made it.
+                    {/if}
                   </span>
                 </span>
               </label>
@@ -1448,7 +1485,11 @@
                 it: somebody independent has to see the file's fingerprint and sign it,
                 or the time means nothing.
                 <span class="outgoing-list">
-                  <span><strong>What goes:</strong> 32 bytes — the SHA-256 of the finished PDF</span>
+                  <span>
+                    <strong>What goes:</strong>
+                    32 bytes — the SHA-256 of
+                    {wantCertificate && identity ? 'your signature' : 'the finished PDF'}
+                  </span>
                   <span><strong>What does not:</strong> the document, your name, the signature</span>
                   <span
                     ><strong>Where:</strong>
@@ -1525,7 +1566,34 @@
               {#if timestampError}
                 <div class="notice bad">
                   <strong>Saved, without a timestamp.</strong>
-                  {timestampError} The PDF was written anyway, with the signature on it.
+                  {timestampError}
+                  {#if wantCertificate && identity}
+                    The document was signed anyway — the signature is the part that matters, and
+                    it is unaffected. Only the independent time is missing.
+                  {:else}
+                    The PDF was written anyway, with the signature on it.
+                  {/if}
+                </div>
+              {:else if stamped && wantCertificate && identity}
+                <div class="notice ok">
+                  <strong>Saved, signed and timestamped.</strong>
+                  The signature covers every byte of the file, and
+                  {authority.signedBy} states that the signature existed at
+                  <strong>{stamped.time.toISOString().replace('T', ' ').replace('.000Z', ' UTC')}</strong>.
+                  The time no longer rests on this computer's clock.
+                  {#if sent}
+                    <span class="outgoing-list">
+                      <span><strong>Sent:</strong> <code>{groupHex(sent.digestHex)}</code></span>
+                      <span><strong>To:</strong> <code>{sent.url}</code></span>
+                    </span>
+                  {/if}
+                </div>
+              {:else if saved && wantCertificate && identity}
+                <div class="notice ok">
+                  <strong>Saved, and signed.</strong>
+                  The signature covers every byte of the file. The time on it is this computer's
+                  clock, asserted by you and checked by nobody — a timestamp is what makes that
+                  claim somebody else's.
                 </div>
               {:else if stamped}
                 <div class="notice ok">

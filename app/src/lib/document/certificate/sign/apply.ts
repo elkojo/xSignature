@@ -31,6 +31,10 @@ import {
   spliceToken,
   writeByteRange,
 } from '../../timestamp/byte-range';
+import { fetchTimestamp } from '../../timestamp/fetch';
+import { buildTimestampRequest, sha256 } from '../../timestamp/request';
+import { readTimestampResponse, type Timestamp } from '../../timestamp/response';
+import type { Outgoing } from '../../timestamp/apply';
 import { signDetached, type SigningMaterial } from './cms';
 import { signatureDictionary, type SignatureDetails } from './signature-dict';
 
@@ -41,6 +45,8 @@ export interface SignedPdf {
   readonly token: Uint8Array;
   /** The bytes the signature covers, which is everything but the hole. */
   readonly covered: number;
+  /** The timestamp inside the signature, when one was asked for and granted. */
+  readonly timestamp: Timestamp | null;
 }
 
 export interface SignOptions extends SignatureDetails {
@@ -57,6 +63,40 @@ export interface SignOptions extends SignatureDetails {
   readonly rect?: readonly [number, number, number, number];
   /** The appearance stream to show in that rectangle. */
   readonly appearance?: PDFRef;
+  /**
+   * Where a timestamp over the signature comes from, if one is wanted.
+   *
+   * A function rather than an address, so that this module has one way of
+   * being given a timestamp and the tests can supply a real captured token
+   * without a network. `fromAuthority` below builds the one that fetches.
+   */
+  readonly timestamp?: TimestampSource;
+}
+
+/** Given the signature value, return a timestamp over it. */
+export type TimestampSource = (signatureValue: Uint8Array) => Promise<Timestamp>;
+
+/**
+ * A source that asks an authority, which is the one that goes over the network.
+ *
+ * The same request the app already makes, to the same kind of authority,
+ * carrying the same 32 bytes — what differs is only what those bytes are a
+ * digest of, and where the answer is filed. It stays a single network request
+ * and it stays opt-in.
+ */
+export function fromAuthority(
+  url: string,
+  onOutgoing?: (outgoing: Outgoing) => void,
+): TimestampSource {
+  return async (signatureValue) => {
+    const digest = await sha256(signatureValue);
+    const { der, nonce } = buildTimestampRequest(digest);
+
+    onOutgoing?.({ url, digestHex: toHex(digest), requestBytes: der.length });
+
+    const reply = await fetchTimestamp(url, der);
+    return readTimestampResponse(reply, digest, nonce);
+  };
 }
 
 /** The token did not fit the space reserved for it, and nothing was written. */
@@ -104,12 +144,32 @@ export async function applyCertificateSignature(
   writeByteRange(withPlaceholder, range);
 
   const covered = digestedBytes(withPlaceholder, range);
-  const token = await signDetached(covered, material, { signingTime });
+
+  // Filled in by the callback below, so that what came back can be reported
+  // rather than only embedded.
+  let stamped: Timestamp | null = null;
+
+  const source = options.timestamp;
+  const token = await signDetached(covered, material, {
+    signingTime,
+    timestampSignature: source
+      ? async (signatureValue) => {
+          stamped = await source(signatureValue);
+          return stamped.token;
+        }
+      : undefined,
+  });
 
   const room = (span.end - span.start - 2) / 2;
   if (token.length > room) throw new SignatureTooLarge(token.length, room);
 
   spliceToken(withPlaceholder, span, token);
 
-  return { bytes: withPlaceholder, token, covered: covered.length };
+  return { bytes: withPlaceholder, token, covered: covered.length, timestamp: stamped };
+}
+
+function toHex(bytes: Uint8Array): string {
+  let out = '';
+  for (const byte of bytes) out += byte.toString(16).padStart(2, '0');
+  return out;
 }

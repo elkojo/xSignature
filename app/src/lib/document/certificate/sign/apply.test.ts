@@ -190,3 +190,86 @@ describe('applyCertificateSignature', () => {
     expect(signature?.coversToEndOfFile).toBe(true);
   });
 });
+
+describe('a signature that carries its own timestamp', () => {
+  /**
+   * A real token from DigiCert, captured once and committed for the checker.
+   *
+   * It is over a different digest than this signature's value, which is the
+   * point of using it here: the structure is a genuine authority's output, and
+   * the imprint check has something real to fail against. Nothing reaches the
+   * network — the token is bytes on disk.
+   */
+  const REAL_TOKEN = new Uint8Array(
+    readFileSync(fileURLToPath(new URL('../../timestamp/fixtures/digicert-response.der', import.meta.url))),
+  );
+
+  /** A source that hands back that captured token instead of asking anyone. */
+  async function captured() {
+    const { TimeStampResp } = await import('pkijs');
+    const reply = TimeStampResp.fromBER(REAL_TOKEN as unknown as ArrayBuffer);
+    const token = new Uint8Array(reply.timeStampToken!.toSchema().toBER(false));
+
+    return async () => ({
+      token,
+      time: new Date('2026-09-14T19:03:57.000Z'),
+      policy: '2.16.840.1.114412.7.1',
+      accuracySeconds: null,
+    });
+  }
+
+  it('embeds the token without disturbing the signature', async () => {
+    // An unsigned attribute is outside what the signature covers, which is the
+    // only reason a timestamp over the signature can be attached at all. If it
+    // were inside, adding it would break the thing it describes.
+    const signed = await applyCertificateSignature(await blank(), identity, {
+      timestamp: await captured(),
+    });
+
+    const [checked] = await checkSignatures(signed.bytes);
+    expect(checked.verdict).toBe('intact');
+    expect(checked.signedBy).toBe('Milan Seman');
+  });
+
+  it('reports the timestamp it carries, and who granted it', async () => {
+    const signed = await applyCertificateSignature(await blank(), identity, {
+      timestamp: await captured(),
+    });
+
+    const [checked] = await checkSignatures(signed.bytes);
+    expect(checked.timestamp).not.toBeNull();
+    expect(checked.timestamp!.time.toISOString()).toBe('2026-09-14T19:03:57.000Z');
+    expect(checked.timestamp!.signedBy).toMatch(/DigiCert|Timestamp/i);
+  });
+
+  it('says when the token does not actually describe this signature', async () => {
+    // The check that stops a token borrowed from somewhere else reading as
+    // corroboration. This one is real, and is over another document entirely.
+    const signed = await applyCertificateSignature(await blank(), identity, {
+      timestamp: await captured(),
+    });
+
+    const [checked] = await checkSignatures(signed.bytes);
+    expect(checked.timestamp!.coversSignature).toBe(false);
+  });
+
+  it('carries no timestamp when none was asked for', async () => {
+    const signed = await applyCertificateSignature(await blank(), identity);
+    const [checked] = await checkSignatures(signed.bytes);
+
+    expect(checked.timestamp).toBeNull();
+    expect(signed.timestamp).toBeNull();
+  });
+
+  it('still fits the reserved space with a real token inside it', async () => {
+    // A signature grows by the whole token — several kilobytes with a chain in
+    // it. This is the case the reserve was sized for.
+    const plain = await applyCertificateSignature(await blank(), identity);
+    const stamped = await applyCertificateSignature(await blank(), identity, {
+      timestamp: await captured(),
+    });
+
+    expect(stamped.token.length).toBeGreaterThan(plain.token.length + 3_000);
+    expect(stamped.token.length).toBeLessThan(16_384);
+  });
+});

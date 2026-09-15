@@ -46,6 +46,8 @@ const CONTENT_TYPE = '1.2.840.113549.1.9.3';
 const SIGNING_TIME = '1.2.840.113549.1.9.5';
 const MESSAGE_DIGEST = '1.2.840.113549.1.9.4';
 const SIGNING_CERTIFICATE_V2 = '1.2.840.113549.1.9.16.2.47';
+/** `id-aa-signatureTimeStampToken`, where a signature's own timestamp lives. */
+const SIGNATURE_TIME_STAMP = '1.2.840.113549.1.9.16.2.14';
 
 export interface SigningMaterial {
   readonly certificate: Certificate;
@@ -57,6 +59,21 @@ export interface SigningMaterial {
 export interface CmsOptions {
   /** The signer's clock, as it goes into the signed attributes. */
   readonly signingTime?: Date;
+  /**
+   * Fetch a timestamp over the signature value, if one is wanted.
+   *
+   * Given the signature bytes and expected to return an RFC 3161 token over
+   * them. A function rather than a URL so that nothing in this module reaches
+   * the network: what goes out and where is decided by the caller, which is
+   * also where the app states it before it happens.
+   *
+   * Note what is timestamped. Not the document — the *signature value*. The
+   * signature already covers the document, so timestamping the signature dates
+   * the act of signing and everything under it. It is also what makes this an
+   * unsigned attribute rather than a signed one: the timestamp cannot exist
+   * until the signature does, so the signature cannot cover it.
+   */
+  readonly timestampSignature?: (signatureValue: Uint8Array) => Promise<Uint8Array>;
 }
 
 /**
@@ -149,6 +166,27 @@ export async function signDetached(
   });
 
   await signed.sign(material.key, 0, 'SHA-256', content.slice().buffer as ArrayBuffer);
+
+  if (options.timestampSignature) {
+    // Added after signing, which is the only order possible: the token is over
+    // the signature, so it cannot be inside what the signature covers. That is
+    // exactly why it is an *unsigned* attribute — and why attaching one does
+    // not disturb a signature that has already been made.
+    const signatureValue = new Uint8Array(
+      signed.signerInfos[0].signature.valueBlock.valueHexView,
+    );
+    const token = await options.timestampSignature(signatureValue);
+
+    signed.signerInfos[0].unsignedAttrs = new SignedAndUnsignedAttributes({
+      type: 1,
+      attributes: [
+        new Attribute({
+          type: SIGNATURE_TIME_STAMP,
+          values: [asn1js.fromBER(token.slice().buffer as ArrayBuffer).result],
+        }),
+      ],
+    });
+  }
 
   const wrapped = new ContentInfo({
     contentType: ID_SIGNED_DATA,

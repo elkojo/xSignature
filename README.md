@@ -47,9 +47,13 @@ browser can read is one that can be copied. The app also does not check whose
 certificate it is — it signs with the key it is given, and says so. Judging
 that is your PDF reader's job, against a trust list this app does not ship.
 
-The timestamp is a third, much smaller claim. It establishes one fact and no
-others: that a file existed at a particular time, according to an authority
-that has never heard of whoever made it.
+The timestamp is a third claim, and what it is worth depends on what it is
+attached to. On its own it establishes one fact and no others: that a file
+existed at a particular time, according to an authority that has never heard of
+whoever made it. Attached to a certificate signature it says more — that the
+*signature* existed then, so the time of signing stops resting on the signer's
+own computer clock. That is a PAdES-B-T signature, and it is one network
+request, not two.
 
 ## Key files
 
@@ -105,10 +109,22 @@ appearance stream, so what you see is part of what is signed rather than
 content that happens to sit underneath it. That block is drawn as outlines in a
 bundled face, because PDF's built-in fonts cannot spell a Czech name.
 
-A timestamp is a PAdES document timestamp — `/DocTimeStamp`, `/ETSI.RFC3161` —
-written as an incremental update, so the bytes that arrived are left exactly as
-they were. It is deliberately not a signature dictionary: a document timestamp
-needs no private key, no certificate and no identity, and claims none.
+A timestamp takes one of two forms, depending on what there is to timestamp.
+
+Without a certificate it is a PAdES document timestamp — `/DocTimeStamp`,
+`/ETSI.RFC3161` — written as an incremental update, so the bytes that arrived
+are left exactly as they were. It is deliberately not a signature dictionary: a
+document timestamp needs no private key, no certificate and no identity, and
+claims none.
+
+With a certificate it goes *inside* the signature, as the unsigned attribute
+`id-aa-signatureTimeStampToken`, over the signature value rather than over the
+document. Unsigned because it cannot be otherwise: the token is a statement
+about the signature, so it cannot exist until the signature does, and so cannot
+be covered by it. That is also what lets one be attached without disturbing the
+signature it describes. The Check screen reads it back and compares its imprint
+against the signature it is attached to — a real token from a real authority,
+over some other signature, would otherwise read as corroboration and be none.
 
 ## Formats
 

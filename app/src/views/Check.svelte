@@ -204,6 +204,16 @@
               {#if result.policy}
                 <div><span>Policy</span><code>{result.policy}</code></div>
               {/if}
+              {#if result.timestamp}
+                <div>
+                  <span>Timestamped</span>
+                  <strong>
+                    {when(result.timestamp.time)}{result.timestamp.signedBy
+                      ? ` by ${result.timestamp.signedBy}`
+                      : ''}
+                  </strong>
+                </div>
+              {/if}
               <div>
                 <span>Covers</span>
                 <strong>
@@ -224,6 +234,25 @@
                 </strong>
               </div>
             </div>
+
+            {#if result.timestamp && !result.timestamp.coversSignature}
+              <!--
+                A token attached to a signature it does not describe would read
+                as corroboration and be none, which is worth saying loudly.
+              -->
+              <div class="notice bad">
+                <strong>The timestamp inside this signature is not for this signature.</strong>
+                It is a real token from a real authority, but what it attests to is some other
+                signature. Treat the time above as meaning nothing here.
+              </div>
+            {:else if result.timestamp}
+              <div class="notice ok">
+                <strong>The time on this signature is not the signer's own.</strong>
+                {result.timestamp.signedBy ?? 'An authority'} saw this signature and dated it, so
+                the time does not rest on the signer's computer. Whether that authority is worth
+                believing is, like the signer's identity, a question for your PDF reader.
+              </div>
+            {/if}
 
             {#if !result.coversToEndOfFile}
               <div class="notice warn">

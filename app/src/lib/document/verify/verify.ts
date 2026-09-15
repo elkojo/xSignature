@@ -70,6 +70,20 @@ export interface CheckedSignature {
   readonly name: string | null;
   /** How many certificates the token carried, the signer's included. */
   readonly certificateCount: number;
+  /**
+   * A timestamp carried *inside* this signature, when it has one.
+   *
+   * This is what makes a signature PAdES-B-T, and it is a stronger statement
+   * than the signer's own clock beside it: an authority saw the signature and
+   * said when. `coversSignature` is checked here rather than assumed — a token
+   * attached to a signature it does not describe would otherwise look like
+   * corroboration and be none.
+   */
+  readonly timestamp: {
+    readonly time: Date;
+    readonly signedBy: string | null;
+    readonly coversSignature: boolean;
+  } | null;
   readonly coversToEndOfFile: boolean;
   /** How much of the file this one covers, in bytes. */
   readonly covers: number;
@@ -108,6 +122,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
       signedBy: null,
       policy: null,
       certificateCount: 0,
+      timestamp: null,
       detail: 'The token in this file could not be read.',
     };
   }
@@ -132,6 +147,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
         signedBy: subjectOf(signed),
         policy: null,
         certificateCount: signed.certificates?.length ?? 0,
+        timestamp: null,
         detail: 'The token in this file could not be read as a timestamp.',
       };
     }
@@ -145,6 +161,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
     signedBy: subjectOf(signed),
     policy,
     certificateCount: signed.certificates?.length ?? 0,
+    timestamp: await embeddedTimestampOf(signed),
   };
 
   // The library checks the digest and the signature together: a mismatch on the
@@ -169,6 +186,52 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
         ? 'This file has changed since it was timestamped. The timestamp describes different bytes than the ones here.'
         : 'This file has changed since it was signed. The signature describes different bytes than the ones here.',
     };
+  }
+}
+
+/** `id-aa-signatureTimeStampToken`. */
+const SIGNATURE_TIME_STAMP = '1.2.840.113549.1.9.16.2.14';
+
+/**
+ * The timestamp a signature carries inside itself, if it carries one.
+ *
+ * Read out of the *unsigned* attributes, which is where it has to live: the
+ * token is over the signature value, so it cannot exist until the signature
+ * does, and cannot be covered by it.
+ *
+ * Whether it describes *this* signature is checked rather than taken on trust.
+ * A token whose imprint is some other digest is not corroboration, and would
+ * look exactly like corroboration if nobody compared them.
+ */
+async function embeddedTimestampOf(
+  signed: SignedData,
+): Promise<CheckedSignature['timestamp']> {
+  const attributes = signed.signerInfos[0]?.unsignedAttrs?.attributes ?? [];
+  const attribute = attributes.find((candidate) => candidate.type === SIGNATURE_TIME_STAMP);
+  if (!attribute) return null;
+
+  try {
+    const content = new ContentInfo({ schema: attribute.values[0] });
+    const tokenSigned = new SignedData({ schema: content.content });
+    const eContent = tokenSigned.encapContentInfo.eContent;
+    if (!eContent) return null;
+
+    const info = TSTInfo.fromBER(eContent.valueBlock.valueHexView as unknown as ArrayBuffer);
+    const imprint = new Uint8Array(info.messageImprint.hashedMessage.valueBlock.valueHexView);
+
+    const signatureValue = new Uint8Array(signed.signerInfos[0].signature.valueBlock.valueHexView);
+    const expected = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', signatureValue.slice().buffer as ArrayBuffer),
+    );
+
+    return {
+      time: info.genTime,
+      signedBy: subjectOf(tokenSigned),
+      coversSignature:
+        imprint.length === expected.length && imprint.every((byte, i) => byte === expected[i]),
+    };
+  } catch {
+    return null;
   }
 }
 

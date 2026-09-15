@@ -19,9 +19,7 @@ import { fileURLToPath } from 'node:url';
 import subsetFont from 'subset-font';
 
 const OUT = fileURLToPath(new URL('../src/lib/signature/fonts/', import.meta.url));
-const TEXT_OUT = fileURLToPath(
-  new URL('../src/lib/document/certificate/appearance/fonts/', import.meta.url),
-);
+const TEXT_OUT = fileURLToPath(new URL('../src/lib/document/fonts/', import.meta.url));
 const MODULES = fileURLToPath(new URL('../node_modules/', import.meta.url));
 
 /** Every bundled face, with where its `.ttf` and its licence come from. */
@@ -112,87 +110,95 @@ ${provenance
 );
 
 // ---------------------------------------------------------------------------
-// The text face, for the details block beside a visible signature.
+// The text faces, for documents this app sets itself.
 //
-// Not a handwriting face and not offered as one: it is the app's own UI font,
-// drawn into a PDF as outlines the same way a signature is. Kept in its own
-// directory so that nothing enumerating the signature faces can pick it up.
+// Not handwriting and not offered as such: these draw the details block beside
+// a visible signature, and the PDFs the app lays out from `.txt` and `.md`.
+// They live in their own directory so nothing enumerating the signature faces
+// can reach them.
 //
-// Subset, which is the one place this script departs from copying verbatim.
-// The reason is the audience: the built-in PDF fonts are WinAnsi, which turns
-// "Jiří Novák" into "Ji?í Novák", and the certificates this feature exists for
-// are Czech. Latin Extended-A is what fixes that, and carrying the other 2,000
-// glyphs to get it would cost 342 kB instead of 93 kB.
+// Subset, which is where this script departs from copying verbatim. The reason
+// is the audience: PDF's built-in fonts are WinAnsi, which turns "Uzavřená"
+// into "Uzav?ená" — silently, in the body of somebody's document — and the
+// languages this app is used in need Latin Extended-A. Carrying the other two
+// thousand glyphs to get it would cost four times as much.
 
-const TEXT_FACE = {
-  name: 'Inter',
-  pkg: '@expo-google-fonts/inter',
-  ttf: '400Regular/Inter_400Regular.ttf',
-  file: 'Inter-Regular-Latin.ttf',
-};
+const TEXT_FACES = [
+  { name: 'Inter', pkg: '@expo-google-fonts/inter', ttf: '400Regular/Inter_400Regular.ttf', file: 'Inter-Regular-Latin.ttf' },
+  { name: 'Inter Bold', pkg: '@expo-google-fonts/inter', ttf: '700Bold/Inter_700Bold.ttf', file: 'Inter-Bold-Latin.ttf' },
+  { name: 'Inter Italic', pkg: '@expo-google-fonts/inter', ttf: '400Regular_Italic/Inter_400Regular_Italic.ttf', file: 'Inter-Italic-Latin.ttf' },
+  { name: 'Inter Bold Italic', pkg: '@expo-google-fonts/inter', ttf: '700Bold_Italic/Inter_700Bold_Italic.ttf', file: 'Inter-BoldItalic-Latin.ttf' },
+  { name: 'JetBrains Mono', pkg: '@expo-google-fonts/jetbrains-mono', ttf: '400Regular/JetBrainsMono_400Regular.ttf', file: 'JetBrainsMono-Regular-Latin.ttf' },
+];
 
 /**
  * Basic Latin, Latin-1 Supplement and Latin Extended-A, plus the punctuation a
- * reason or a location is likely to contain.
+ * document is likely to contain.
  *
  * That covers Czech, Slovak, Polish, Hungarian, the Baltic languages, Turkish
- * and Western Europe. A character outside it is reported to the reader by
- * `unsupportedCharacters`, exactly as it is for a signature face.
+ * and Western Europe. A character outside it is reported to the reader rather
+ * than silently replaced.
  */
 function latinCharacters() {
   let characters = '';
   for (let code = 0x20; code <= 0x7e; code += 1) characters += String.fromCharCode(code);
   for (let code = 0xa0; code <= 0xff; code += 1) characters += String.fromCharCode(code);
   for (let code = 0x100; code <= 0x17f; code += 1) characters += String.fromCharCode(code);
-  return characters + '\u2018\u2019\u201c\u201d\u2013\u2014\u2026\u20ac';
+  return characters + '\u2018\u2019\u201c\u201d\u2013\u2014\u2026\u20ac\u2022\u2192';
 }
 
 mkdirSync(TEXT_OUT, { recursive: true });
+const textProvenance = [];
 
-const textFrom = `${MODULES}${TEXT_FACE.pkg}/${TEXT_FACE.ttf}`;
-if (!existsSync(textFrom)) {
-  throw new Error(`${TEXT_FACE.name}: no ttf at ${textFrom} — is ${TEXT_FACE.pkg} installed?`);
+for (const face of TEXT_FACES) {
+  const from = `${MODULES}${face.pkg}/${face.ttf}`;
+  if (!existsSync(from)) throw new Error(`${face.name}: no ttf at ${from} — is ${face.pkg} installed?`);
+
+  const licencePath = ['OFL.txt', 'LICENSE_FONT', 'LICENSE', 'LICENSE.txt']
+    .map((f) => `${MODULES}${face.pkg}/${f}`)
+    .find((f) => existsSync(f));
+  if (!licencePath) throw new Error(`${face.name}: ${face.pkg} ships no licence file — do not bundle it`);
+
+  const licenceText = readFileSync(licencePath, 'utf8');
+  if (!/SIL OPEN FONT LICENSE/i.test(licenceText)) {
+    throw new Error(`${face.name}: licence at ${licencePath} is not the SIL OFL — do not bundle it`);
+  }
+
+  const full = readFileSync(from);
+  const subset = await subsetFont(full, latinCharacters(), { targetFormat: 'truetype' });
+  writeFileSync(`${TEXT_OUT}${face.file}`, subset);
+  writeFileSync(`${TEXT_OUT}${face.file.replace(/\.ttf$/, '.OFL.txt')}`, licenceText);
+
+  const meta = JSON.parse(readFileSync(`${MODULES}${face.pkg}/package.json`, 'utf8'));
+  textProvenance.push({ ...face, full: full.length, subset: subset.length, version: meta.version ?? 'unknown' });
+  console.log(`${face.name} → ${face.file} (subset, ${subset.length} bytes)`);
 }
-
-const textLicence = ['OFL.txt', 'LICENSE_FONT', 'LICENSE', 'LICENSE.txt']
-  .map((f) => `${MODULES}${TEXT_FACE.pkg}/${f}`)
-  .find((f) => existsSync(f));
-if (!textLicence) {
-  throw new Error(`${TEXT_FACE.name}: ${TEXT_FACE.pkg} ships no licence file — do not bundle it`);
-}
-
-const textLicenceText = readFileSync(textLicence, 'utf8');
-if (!/SIL OPEN FONT LICENSE/i.test(textLicenceText)) {
-  throw new Error(`${TEXT_FACE.name}: licence at ${textLicence} is not the SIL OFL — do not bundle it`);
-}
-
-const full = readFileSync(textFrom);
-const subset = await subsetFont(full, latinCharacters(), { targetFormat: 'truetype' });
-writeFileSync(`${TEXT_OUT}${TEXT_FACE.file}`, subset);
-writeFileSync(`${TEXT_OUT}${TEXT_FACE.file.replace(/\.ttf$/, '.OFL.txt')}`, textLicenceText);
-
-const textMeta = JSON.parse(readFileSync(`${MODULES}${TEXT_FACE.pkg}/package.json`, 'utf8'));
 
 writeFileSync(
   `${TEXT_OUT}README.md`,
-  `# The appearance block's text face
+  `# Text faces
 
 Generated by \`npm run fonts:vendor\` — do not edit by hand.
 
-\`${TEXT_FACE.file}\` is Inter, subset to Basic Latin, Latin-1 Supplement and
-Latin Extended-A. It is **not** a signature face and is not offered as one: it
-draws the details block beside a visible certificate signature, as outlines,
-the same way a signature is drawn.
+These are **not** signature faces and are not offered as such. They set the
+details block beside a visible certificate signature, and the PDFs this app
+lays out from \`.txt\` and \`.md\`.
 
-It is subset rather than copied verbatim — the only font here that is. PDF's
-built-in fonts are WinAnsi, which cannot spell a Czech name, and the
-certificates this feature exists for are Czech. Latin Extended-A fixes that;
-shipping the whole face to get it would cost ${Math.round(full.length / 1024)} kB instead of ${Math.round(subset.length / 1024)} kB.
+They are the only bundled fonts that are subset rather than copied verbatim.
+PDF's built-in fonts are WinAnsi, which cannot spell a Czech, Polish or
+Hungarian word — it writes \`?\` instead, silently, in the body of somebody's
+document. Latin Extended-A fixes that; shipping the whole faces to get it would
+cost four times as much. None of these faces declares a Reserved Font Name, so
+the OFL permits subsetting them without renaming.
 
-- Licence: \`${TEXT_FACE.file.replace(/\.ttf$/, '.OFL.txt')}\` (OFL-1.1)
-- Source package: \`${TEXT_FACE.pkg}@${textMeta.version ?? 'unknown'}\`
-- Full face: ${full.length.toLocaleString()} bytes → subset: ${subset.length.toLocaleString()} bytes
-`,
+${textProvenance
+  .map(
+    (f) =>
+      `## ${f.name}\n\n` +
+      `- File: \`${f.file}\`\n` +
+      `- Licence: \`${f.file.replace(/\.ttf$/, '.OFL.txt')}\` (OFL-1.1)\n` +
+      `- Source package: \`${f.pkg}@${f.version}\`\n` +
+      `- Full face: ${f.full.toLocaleString()} bytes → subset: ${f.subset.toLocaleString()} bytes\n`,
+  )
+  .join('\n')}`,
 );
-
-console.log(`${TEXT_FACE.name} → ${TEXT_FACE.file} (subset, ${subset.length} bytes)`);

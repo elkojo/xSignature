@@ -2,22 +2,36 @@ import { PDFDocument } from '@cantoo/pdf-lib';
 import { describe, expect, it } from 'vitest';
 
 import { openPdf } from '../pdf/inspect';
-import { textToPdf, toWinAnsi } from './text-to-pdf';
+import { readBackText } from './read-back';
+import { textToPdf } from './text-to-pdf';
 
-describe('toWinAnsi', () => {
-  it('leaves ordinary text alone', () => {
-    expect(toWinAnsi('Plain ASCII, and accents: café naïve')).toBe(
-      'Plain ASCII, and accents: café naïve',
-    );
+describe('the text a converted document actually carries', () => {
+  it('says what the file said, in a language WinAnsi cannot spell', async () => {
+    // The reason these documents no longer use PDF's built-in fonts. Those are
+    // one byte a character, and wrote "Uzav?ená" into the body of a contract —
+    // silently, with no error and nothing to notice. Read back with a library
+    // that did not write it, because a font embedded without its character map
+    // draws perfectly and reads as nothing at all.
+    const czech = 'Uzavřená smlouva o dílo, příloha č. 1.\nZdeňka Růžičková';
+    const text = await readBackText(await textToPdf(czech));
+
+    expect(text).toContain('Uzavřená smlouva o dílo');
+    expect(text).toContain('příloha č. 1');
+    expect(text).toContain('Zdeňka Růžičková');
+    expect(text).not.toContain('?');
   });
 
-  it('reads typographic punctuation across rather than dropping it', () => {
-    // These arrive in nearly every file written in a word processor.
-    expect(toWinAnsi('“quoted” — it’s fine…')).toBe('"quoted" -- it\'s fine...');
+  it('carries the punctuation a word processor produces', async () => {
+    const text = await readBackText(await textToPdf('“quoted” — it’s fine…'));
+
+    expect(text).toContain('“quoted”');
+    expect(text).toContain('—');
+    expect(text).toContain('…');
   });
 
-  it('substitutes what the built-in fonts cannot carry instead of failing', () => {
-    expect(toWinAnsi('日本語')).toBe('???');
+  it('keeps plain ASCII exactly as it was', async () => {
+    const text = await readBackText(await textToPdf('Plain ASCII, and accents: café naïve'));
+    expect(text).toContain('Plain ASCII, and accents: café naïve');
   });
 });
 
@@ -60,6 +74,9 @@ describe('textToPdf', () => {
     // The built-in fonts leave the string legible in the content stream.
     const doc = await PDFDocument.load(pdf, { updateMetadata: false });
     expect(doc.getPageCount()).toBe(1);
-    expect(pdf.length).toBeLessThan(20_000); // a raster page would be far larger
+    // Bigger than it was: a document that can spell carries the font it is set
+    // in, about 60 kB of subset monospace. Still an order of magnitude under a
+    // page rasterized to an image, which is what this guards against.
+    expect(pdf.length).toBeLessThan(200_000); // a raster page would be far larger
   });
 });

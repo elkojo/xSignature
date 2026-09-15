@@ -17,7 +17,7 @@ let font: Font;
 let identity: Identity;
 
 beforeAll(async () => {
-  const ttf = readFileSync(fileURLToPath(new URL('./fonts/Inter-Regular-Latin.ttf', import.meta.url)));
+  const ttf = readFileSync(fileURLToPath(new URL('../../fonts/Inter-Regular-Latin.ttf', import.meta.url)));
   font = parse(ttf.buffer.slice(ttf.byteOffset, ttf.byteOffset + ttf.byteLength));
 
   const keys = await makeKeyFiles({ commonName: 'Jiří Novák' });

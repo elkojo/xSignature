@@ -11,7 +11,7 @@
  */
 import { parse, type Font } from 'opentype.js';
 
-import url from './fonts/Inter-Regular-Latin.ttf?url';
+import url from '../../fonts/Inter-Regular-Latin.ttf?url';
 
 let pending: Promise<Font> | null = null;
 

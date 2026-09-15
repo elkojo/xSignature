@@ -129,8 +129,15 @@ over some other signature, would otherwise read as corroboration and be none.
 ## Formats
 
 PDFs are stamped directly. Plain text (`.txt`, `.log`) and Markdown (`.md`) are
-laid out as a PDF on the device, using the fonts every PDF reader already has —
-nothing is fetched to do it.
+laid out as a PDF on the device, in faces bundled with the app.
+
+Not in PDF's own built-in fonts, which need no font file at all and were used
+here first. Those are WinAnsi — one byte a character — and they turn `Uzavřená`
+into `Uzav?ená`, silently, in the body of the document. The bundled faces carry
+Latin Extended-A, which covers Czech, Slovak, Polish, Hungarian, the Baltic
+languages and Turkish. They are embedded in the PDF so it opens the same
+anywhere, and only the faces a document actually uses are embedded, so a plain
+memo does not carry an italic it never asked for.
 
 Nothing else is read. Word, OpenDocument and the rest are turned away with a
 reason: converting them faithfully would mean either a very large converter

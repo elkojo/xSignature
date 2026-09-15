@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { openPdf } from '../pdf/inspect';
 import { markdownToPdf } from './markdown-to-pdf';
+import { readBackText } from './read-back';
 
 const SAMPLE = `# Agreement
 
@@ -37,8 +38,11 @@ describe('markdownToPdf', () => {
   it('keeps the words as text, not as a picture of text', async () => {
     // The whole document screen rests on this: a signed document whose text was
     // flattened to a raster is not the document anybody wrote.
+    // Bigger than it was: a document that can spell carries the faces it is
+    // set in, about 90 kB each. This sample asks for nearly all of them. Still
+    // far under a page rasterized to an image, which is what this guards.
     const pdf = await markdownToPdf(SAMPLE);
-    expect(pdf.length).toBeLessThan(40_000);
+    expect(pdf.length).toBeLessThan(400_000);
   });
 
   it('records where the document came from', async () => {
@@ -72,5 +76,35 @@ describe('markdownToPdf', () => {
     // A URL or a hash with no spaces in it: the wrapper has to cut it rather
     // than run it off the page or loop forever.
     await expect(markdownToPdf(`Here: ${'a'.repeat(4000)}`)).resolves.toBeTruthy();
+  });
+});
+
+describe('the faces a document carries', () => {
+  it('embeds only the ones it actually uses', async () => {
+    // Every face costs the reader about 90 kB. A memo with nothing emphasised
+    // and no code in it should not carry an italic and a monospace it never
+    // asked for.
+    const plain = await markdownToPdf('Just a paragraph of ordinary prose.');
+    const everything = await markdownToPdf(SAMPLE);
+
+    expect(plain.length).toBeLessThan(everything.length / 1.5);
+  });
+
+  it('still sets a heading in bold, which no run asks for', async () => {
+    const withHeading = await markdownToPdf('# A heading\n\nAnd a paragraph.');
+    const without = await markdownToPdf('A paragraph.\n\nAnd another.');
+
+    expect(withHeading.length).toBeGreaterThan(without.length);
+  });
+
+  it('says what the document said, in a language WinAnsi cannot spell', async () => {
+    const text = await readBackText(
+      await markdownToPdf('# Smlouva o dílo\n\nZávěrečná ustanovení — příloha č. 1.'),
+    );
+
+    expect(text).toContain('Smlouva o dílo');
+    expect(text).toContain('Závěrečná ustanovení');
+    expect(text).toContain('příloha č. 1');
+    expect(text).not.toContain('?');
   });
 });

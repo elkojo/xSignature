@@ -85,24 +85,33 @@ details block is in `app/src/lib/document/certificate/appearance/fonts/`.
 | Sacramento | `Sacramento-Regular.ttf` | 2012 Brian J. Bonislawsky DBA Astigmatic, with Reserved Font Name "Sacramento" |
 | Mr De Haviland | `MrDeHaviland-Regular.ttf` | 2012 Brian J. Bonislawsky DBA Astigmatic |
 | Inter | `Inter-Regular-Latin.ttf` | 2020 The Inter Project Authors |
+| Inter Bold | `Inter-Bold-Latin.ttf` | 2020 The Inter Project Authors |
+| Inter Italic | `Inter-Italic-Latin.ttf` | 2020 The Inter Project Authors |
+| Inter Bold Italic | `Inter-BoldItalic-Latin.ttf` | 2020 The Inter Project Authors |
+| JetBrains Mono | `JetBrainsMono-Regular-Latin.ttf` | 2020 The JetBrains Mono Project Authors |
 
-All eight are OFL-1.1.
+All twelve are OFL-1.1.
 
 The seven signature faces are copied verbatim — not subset, not re-encoded, not
 renamed — so the Reserved Font Name clause is satisfied for those that declare
 one.
 
-**Inter is the exception, and is subset.** It carries Basic Latin, Latin-1
-Supplement and Latin Extended-A, which is what lets a visible signature spell a
-Czech, Polish or Hungarian name; the full face costs 342 kB to the subset's
-93 kB. Subsetting is a modification, so it is worth being exact about why it is
-permitted here: Inter's copyright line declares **no** Reserved Font Name —
-unlike, say, Sacramento, which reserves its own — so the OFL's renaming
-requirement does not apply. The licence travels with the file and the subset
-stays under the OFL, which is the rest of what the licence asks.
+**The five text faces are the exception, and are subset.** They carry Basic
+Latin, Latin-1 Supplement and Latin Extended-A, which is what lets a document
+spell a Czech, Polish or Hungarian word: PDF's own built-in fonts are WinAnsi
+and write `?` instead, silently, in the body of whatever is being signed. The
+full faces cost about four times the subsets.
 
-It is not offered as a signature face, and lives in its own directory so that
-nothing enumerating the signature faces can reach it.
+Subsetting is a modification, so it is worth being exact about why it is
+permitted: neither Inter's nor JetBrains Mono's copyright line declares a
+Reserved Font Name — unlike, say, Sacramento, which reserves its own — so the
+OFL's renaming requirement does not apply. The licence travels with each file
+and the subsets stay under the OFL, which is the rest of what it asks.
+
+They are not offered as signature faces, and live in their own directory so
+that nothing enumerating the signature faces can reach them. Each is a separate
+asset fetched only when a document actually needs it: a memo with nothing
+emphasised never downloads the italic.
 
 A font whose licence has not been read is never added: `npm run fonts:vendor`
 refuses to bundle a file whose

@@ -1,55 +1,25 @@
 /**
- * Turning a text file into a PDF, with no converter to download.
+ * Turning a text file into a PDF.
  *
- * The writer is already in the bundle for stamping, and a standard PDF font
- * needs no font file at all — every reader has the fourteen built-in faces. So
- * this costs nothing beyond the code you are reading, and it is why `.txt` does
- * not send anyone to fetch a document converter.
+ * Monospaced, not proportional. Plain text is the one format where the writer
+ * may well have lined something up with spaces — a table, a signature block, an
+ * indented quote — and a proportional font silently destroys that while looking
+ * perfectly reasonable.
  *
- * Courier, not a proportional face. Plain text is the one format where the
- * writer may well have lined something up with spaces — a table, a signature
- * block, an indented quote — and a proportional font silently destroys that
- * while looking perfectly reasonable.
+ * The face is bundled rather than one of PDF's built-in fourteen. Those need no
+ * font file, which is why they were used here first, and they are WinAnsi: one
+ * byte a character, no room for `ř` or `ě` or `ů`. Handed a Czech contract they
+ * wrote `Uzav?ená` into the body of it, silently. A bundled face costs bytes;
+ * the built-in one cost the document.
+ *
+ * `embed/type0` writes the font dictionaries by hand, so this needs no font
+ * library beyond the one already here for reading glyph outlines.
  */
-import { PDFDocument, StandardFonts, type PDFFont } from '@cantoo/pdf-lib';
+import { PDFDocument } from '@cantoo/pdf-lib';
 
+import { loadFace } from '../fonts/faces';
+import { drawEmbeddedText, embedType0, finishFont } from './embed/type0';
 import { A4_TEXT, baselineFor, layoutText, type PageSetup } from './text';
-
-/**
- * Drop characters the built-in fonts cannot encode.
- *
- * The standard fourteen are WinAnsi, which is Latin-1 and no more. Handed a
- * character outside it the writer throws, which would turn "your file has an
- * em-dash in it" into "the conversion failed". Substituting is the lesser
- * wrong, and the common cases — curly quotes, dashes — are mapped to something
- * that reads the same rather than to a question mark.
- */
-export function toWinAnsi(text: string): string {
-  const swaps: Record<string, string> = {
-    '‘': "'",
-    '’': "'",
-    '“': '"',
-    '”': '"',
-    '–': '-',
-    '—': '--',
-    '…': '...',
-    ' ': ' ',
-    '•': '*',
-    '→': '->',
-  };
-
-  let out = '';
-  for (const character of text) {
-    const swap = swaps[character];
-    if (swap !== undefined) {
-      out += swap;
-      continue;
-    }
-    // Everything WinAnsi can carry, plus a full stop for what it cannot.
-    out += character.charCodeAt(0) <= 0xff ? character : '?';
-  }
-  return out;
-}
 
 export interface TextPdfOptions {
   readonly setup?: PageSetup;
@@ -64,23 +34,27 @@ export async function textToPdf(
   const setup = options.setup ?? A4_TEXT;
 
   const doc = await PDFDocument.create();
-  if (options.title) doc.setTitle(toWinAnsi(options.title));
+  if (options.title) doc.setTitle(options.title);
 
-  const font: PDFFont = await doc.embedFont(StandardFonts.Courier);
-  const measure = (value: string) => font.widthOfTextAtSize(toWinAnsi(value), setup.fontSize);
+  const mono = await loadFace('mono');
+  const font = embedType0(doc, mono.font, mono.bytes, mono.name);
+  const measure = (value: string) => font.widthOfTextAtSize(value, setup.fontSize);
 
   for (const lines of layoutText(text, setup, measure)) {
     const page = doc.addPage([setup.width, setup.height]);
     lines.forEach((line, index) => {
       if (line === '') return;
-      page.drawText(toWinAnsi(line), {
+      drawEmbeddedText(page, font, line, {
         x: setup.margin,
         y: baselineFor(index, setup),
         size: setup.fontSize,
-        font,
       });
     });
   }
+
+  // Widths and the character map can only be written once every glyph the
+  // document uses is known, which is now.
+  finishFont(font);
 
   return doc.save();
 }

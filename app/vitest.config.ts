@@ -10,6 +10,21 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     setupFiles: ['src/test-setup.ts'],
+    /*
+     * Longer than vitest's five seconds, because this suite does real work
+     * rather than mocking it: RSA keys are generated, PDFs are written and
+     * signed, and the results are read back with PDF.js. Any one of those is
+     * comfortable on an idle machine and none of them is comfortable on a busy
+     * one — a run sharing a laptop with a build failed twice, on a different
+     * test each time and never the same one twice.
+     *
+     * Raising the ceiling rather than annotating forty-five tests: the default
+     * was written for tests that do not do this, and a suite that signs
+     * documents does. Individual tests that generate several keys still say so
+     * themselves.
+     */
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
     server: {
       deps: {
         // pdf-lib's ES build imports its bundled font metrics as JSON. Left

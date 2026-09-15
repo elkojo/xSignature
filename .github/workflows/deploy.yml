@@ -59,11 +59,20 @@ jobs:
       - name: Check the build is the one Pages needs
         # Two silent failures, both visible only after deploying: assets built
         # for the wrong base, and fonts that did not make it into dist.
+        #
+        # The font count is compared against the source rather than written
+        # down. It was a literal seven, and adding the faces that let a
+        # document spell a Czech word made it twelve — so the check that
+        # existed to catch a missing font would instead have failed the deploy
+        # for a font that was there.
         run: |
           grep -q '/xSignature/assets/' dist/index.html \
             || { echo '::error::dist/index.html does not reference /xSignature/assets/ — was BASE_PATH set?'; exit 1; }
-          test "$(ls dist/assets/*.ttf 2>/dev/null | wc -l)" -eq 7 \
-            || { echo '::error::expected seven bundled fonts in dist/assets'; exit 1; }
+          bundled=$(find src -name '*.ttf' | wc -l)
+          built=$(ls dist/assets/*.ttf 2>/dev/null | wc -l)
+          test "$built" -eq "$bundled" \
+            || { echo "::error::$bundled fonts in src but $built in dist/assets"; exit 1; }
+          echo "$built fonts built, matching src"
 
       - name: Stage the site
         # 404.html is a copy of index.html so that any path under /xSignature/

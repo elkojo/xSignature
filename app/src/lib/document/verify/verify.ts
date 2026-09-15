@@ -1,24 +1,38 @@
 /**
- * Checking a timestamp, and being exact about what the check proves.
+ * Checking what a PDF claims about itself, and being exact about what the check
+ * proves.
  *
- * Two things are established here and a third is not.
+ * A file may carry two kinds of claim, and they are not the same size.
  *
- *  1. **The document has not changed.** The digest of the bytes the timestamp
- *     covers is recomputed and compared with the imprint inside the token. If
- *     one byte moved, this fails.
+ * A **document timestamp** says these exact bytes existed at this time,
+ * according to an authority that has never heard of whoever made them.
+ *
+ * A **certificate signature** says more: that whoever held a particular private
+ * key signed these bytes. That is a claim about a person, and it is the one
+ * worth being careful about.
+ *
+ * For either, two things are established here and a third is not.
+ *
+ *  1. **The document has not changed.** The bytes the claim covers are
+ *     reassembled and checked against the digest inside it. If one byte moved,
+ *     this fails.
  *  2. **The token is internally sound.** Its CMS signature is verified against
- *     the certificate carried inside it, so the token is not something somebody
+ *     the certificate carried inside it, so it is not something somebody
  *     assembled by hand.
- *  3. **Not** whether the authority deserves to be believed. That needs a list
- *     of trusted roots, which would have to be shipped, kept current, and
- *     checked for revocation against a network this app does not use. So the
- *     signer's name is reported exactly as the token states it, and the screen
- *     says plainly that vouching for that name is a PDF reader's job.
+ *  3. **Not** whether the signer deserves to be believed. That needs a list of
+ *     trusted roots, kept current, and checked for revocation against a network
+ *     this app does not use. So the signer's name is reported exactly as the
+ *     token states it, and the screen says plainly that vouching for that name
+ *     is a PDF reader's job.
  *
- * Reporting (3) as if it were settled would be the dishonest version of this
- * feature, and the interesting failure — a document altered after stamping — is
- * caught by (1) regardless.
+ * Point 3 matters more for a signature than for a timestamp. A timestamp whose
+ * authority is unknown is still a timestamp; a signature whose signer is
+ * unverified is a signature by nobody in particular. Reporting (3) as if it
+ * were settled would be the dishonest version of this feature, and the
+ * interesting failure — a document altered after signing — is caught by (1)
+ * regardless.
  */
+import * as asn1js from 'asn1js';
 import { ContentInfo, SignedData, TSTInfo } from 'pkijs';
 
 import { digestedBytes } from '../timestamp/byte-range';
@@ -27,22 +41,35 @@ import { findSignatures, isDocumentTimestamp, type FoundSignature } from './find
 export type Verdict =
   /** Covers this file, and its own signature checks out. */
   | 'intact'
-  /** The file has changed since it was stamped. */
+  /** The file has changed since it was signed or stamped. */
   | 'altered'
   /** The token's signature does not check out against its own certificate. */
   | 'broken'
   /** Something in the token could not be read at all. */
   | 'unreadable';
 
-export interface CheckedTimestamp {
+export interface CheckedSignature {
   readonly verdict: Verdict;
-  /** What the token says the time was. Absent when it could not be read. */
+  /** What kind of claim this is. */
+  readonly kind: 'timestamp' | 'signature';
+  /**
+   * The time the claim states.
+   *
+   * For a timestamp this is an authority's clock, which is the point of it. For
+   * a signature it is the signer's own, asserted and checked by nobody.
+   */
   readonly time: Date | null;
   /** The signer, exactly as the token names it. Not vouched for. */
   readonly signedBy: string | null;
   readonly policy: string | null;
   /** True when this is a document timestamp rather than a signature of identity. */
   readonly isTimestamp: boolean;
+  /** What the signer typed into the signature, if anything. Not checked. */
+  readonly reason: string | null;
+  readonly location: string | null;
+  readonly name: string | null;
+  /** How many certificates the token carried, the signer's included. */
+  readonly certificateCount: number;
   readonly coversToEndOfFile: boolean;
   /** How much of the file this one covers, in bytes. */
   readonly covers: number;
@@ -51,27 +78,28 @@ export interface CheckedTimestamp {
 }
 
 /** Everything the file claims, checked. */
-export async function checkTimestamps(pdf: Uint8Array): Promise<CheckedTimestamp[]> {
+export async function checkSignatures(pdf: Uint8Array): Promise<CheckedSignature[]> {
   const found = findSignatures(pdf);
   return Promise.all(found.map((signature) => checkOne(pdf, signature)));
 }
 
-async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<CheckedTimestamp> {
+async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<CheckedSignature> {
   const covered = digestedBytes(pdf, signature.byteRange);
+  const isTimestamp = isDocumentTimestamp(signature);
   const shared = {
-    isTimestamp: isDocumentTimestamp(signature),
+    isTimestamp,
+    kind: (isTimestamp ? 'timestamp' : 'signature') as 'timestamp' | 'signature',
+    reason: signature.reason,
+    location: signature.location,
+    name: signature.name,
     coversToEndOfFile: signature.coversToEndOfFile,
     covers: signature.byteRange[1] + signature.byteRange[3],
   };
 
   let signed: SignedData;
-  let info: TSTInfo;
   try {
     const content = ContentInfo.fromBER(signature.token as unknown as ArrayBuffer);
     signed = new SignedData({ schema: content.content });
-    const eContent = signed.encapContentInfo.eContent;
-    if (!eContent) throw new Error('no content');
-    info = TSTInfo.fromBER(eContent.valueBlock.valueHexView as unknown as ArrayBuffer);
   } catch {
     return {
       ...shared,
@@ -79,20 +107,49 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
       time: null,
       signedBy: null,
       policy: null,
-      detail: 'The token in this file could not be read as a timestamp.',
+      certificateCount: 0,
+      detail: 'The token in this file could not be read.',
     };
+  }
+
+  // A timestamp carries its time inside a TSTInfo in the signed content; a
+  // signature carries it as a signed attribute, or not at all. Neither is
+  // fatal to read — the integrity check below does not depend on it.
+  let time: Date | null = null;
+  let policy: string | null = null;
+  if (isTimestamp) {
+    try {
+      const eContent = signed.encapContentInfo.eContent;
+      if (!eContent) throw new Error('no content');
+      const info = TSTInfo.fromBER(eContent.valueBlock.valueHexView as unknown as ArrayBuffer);
+      time = info.genTime;
+      policy = info.policy ?? null;
+    } catch {
+      return {
+        ...shared,
+        verdict: 'unreadable',
+        time: null,
+        signedBy: subjectOf(signed),
+        policy: null,
+        certificateCount: signed.certificates?.length ?? 0,
+        detail: 'The token in this file could not be read as a timestamp.',
+      };
+    }
+  } else {
+    time = signingTimeOf(signed);
   }
 
   const described = {
     ...shared,
-    time: info.genTime,
+    time,
     signedBy: subjectOf(signed),
-    policy: info.policy ?? null,
+    policy,
+    certificateCount: signed.certificates?.length ?? 0,
   };
 
-  // The library checks the imprint and the signature together: a mismatch on
-  // the first throws, a bad signature returns false. The two mean different
-  // things to the reader, so they are reported differently.
+  // The library checks the digest and the signature together: a mismatch on the
+  // first throws, a bad signature returns false. The two mean different things
+  // to the reader, so they are reported differently.
   try {
     const ok = await signed.verify({ signer: 0, data: covered.slice().buffer as ArrayBuffer });
     return ok
@@ -100,17 +157,31 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
       : {
           ...described,
           verdict: 'broken',
-          detail:
-            'The timestamp covers this file, but its own signature does not check out against the certificate inside it.',
+          detail: isTimestamp
+            ? 'The timestamp covers this file, but its own signature does not check out against the certificate inside it.'
+            : 'The signature covers this file, but does not check out against the certificate inside it.',
         };
   } catch {
     return {
       ...described,
       verdict: 'altered',
-      detail:
-        'This file has changed since it was timestamped. The timestamp describes different bytes than the ones here.',
+      detail: isTimestamp
+        ? 'This file has changed since it was timestamped. The timestamp describes different bytes than the ones here.'
+        : 'This file has changed since it was signed. The signature describes different bytes than the ones here.',
     };
   }
+}
+
+/** The signer's own clock, out of the signed attributes. */
+function signingTimeOf(signed: SignedData): Date | null {
+  const attributes = signed.signerInfos[0]?.signedAttrs?.attributes ?? [];
+  const attribute = attributes.find((candidate) => candidate.type === '1.2.840.113549.1.9.5');
+  const value = attribute?.values[0];
+
+  if (value instanceof asn1js.UTCTime || value instanceof asn1js.GeneralizedTime) {
+    return value.toDate();
+  }
+  return null;
 }
 
 /** The signer's common name, or the whole subject if it has no CN. */

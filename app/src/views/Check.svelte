@@ -10,12 +10,12 @@
    * it did not. It can say the file has not changed and the token is sound; it
    * cannot say the authority deserves to be believed, and it does not imply it.
    */
-  import { checkTimestamps, type CheckedTimestamp } from '../lib/document/verify/verify';
+  import { checkSignatures, type CheckedSignature } from '../lib/document/verify/verify';
 
   let fileName = $state('');
   let fileSize = $state(0);
   let checking = $state(false);
-  let checked = $state<CheckedTimestamp[] | null>(null);
+  let checked = $state<CheckedSignature[] | null>(null);
   let error = $state('');
   let over = $state(false);
   let fileInput = $state<HTMLInputElement | null>(null);
@@ -34,7 +34,7 @@
         error = 'This is not a PDF. Only a PDF can carry a timestamp of this kind.';
         return;
       }
-      checked = await checkTimestamps(bytes);
+      checked = await checkSignatures(bytes);
     } catch {
       error = 'This file could not be read. It may be damaged, or only partly downloaded.';
     } finally {
@@ -164,8 +164,12 @@
 
             {#if result.verdict === 'intact'}
               <div class="notice ok">
-                <strong>The document has not changed since it was stamped.</strong>
-                The bytes here are the bytes the timestamp was taken over.
+                <strong>
+                  The document has not changed since it was {result.isTimestamp
+                    ? 'stamped'
+                    : 'signed'}.
+                </strong>
+                The bytes here are the bytes it was taken over.
               </div>
             {:else if result.verdict === 'altered'}
               <div class="notice bad">
@@ -183,7 +187,16 @@
 
             <div class="facts">
               {#if result.time}
-                <div><span>Stated time</span><strong>{when(result.time)}</strong></div>
+                <div>
+                  <span>{result.isTimestamp ? 'Stated time' : "Signer's own clock"}</span>
+                  <strong>{when(result.time)}</strong>
+                </div>
+              {/if}
+              {#if result.reason}
+                <div><span>Reason</span><strong>{result.reason}</strong></div>
+              {/if}
+              {#if result.location}
+                <div><span>Location</span><strong>{result.location}</strong></div>
               {/if}
               {#if result.signedBy}
                 <div><span>Signed by</span><strong>{result.signedBy}</strong></div>
@@ -201,7 +214,7 @@
                       include is the token's own bytes, which cannot sign
                       themselves.
                     -->
-                    the whole document, apart from the timestamp's own {(
+                    the whole document, apart from its own {(
                       fileSize - result.covers
                     ).toLocaleString()} bytes
                   {:else}
@@ -214,9 +227,13 @@
 
             {#if !result.coversToEndOfFile}
               <div class="notice warn">
-                <strong>Something was added after this was stamped.</strong>
-                The timestamp does not reach the end of the file, so part of what you would see on
-                opening it is not covered by anything above.
+                <strong>
+                  Something was added after this was {result.isTimestamp ? 'stamped' : 'signed'}.
+                </strong>
+                It does not reach the end of the file, so part of what you would see on opening it
+                is not covered by anything above. That is normal when a document was signed and
+                then timestamped, and it is also how a document is made to show one thing while
+                being signed as another — so it is worth knowing which of the two happened here.
               </div>
             {/if}
 
@@ -231,6 +248,10 @@
               authorities kept up to date against revocations, which this app has no way to do
               offline. Open the file in a PDF reader for that judgement. The name above is read
               straight out of the token and is not vouched for.
+              {#if !result.isTimestamp}
+                Anything under Reason or Location was typed by whoever signed. The signature stops
+                anyone else altering it; nothing makes it true.
+              {/if}
             </div>
           </div>
         {/each}

@@ -5,7 +5,7 @@ import { PDFDocument, StandardFonts } from '@cantoo/pdf-lib';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { findSignatures, isDocumentTimestamp } from './find';
-import { checkTimestamps } from './verify';
+import { checkSignatures } from './verify';
 
 /**
  * A real timestamped PDF, produced by this app and stamped by DigiCert, kept so
@@ -56,9 +56,9 @@ describe('findSignatures', () => {
   });
 });
 
-describe('checkTimestamps', () => {
+describe('checkSignatures', () => {
   it('reports an untouched document as intact', async () => {
-    const [checked] = await checkTimestamps(TIMESTAMPED);
+    const [checked] = await checkSignatures(TIMESTAMPED);
 
     expect(checked.verdict).toBe('intact');
     expect(checked.isTimestamp).toBe(true);
@@ -67,7 +67,7 @@ describe('checkTimestamps', () => {
   });
 
   it('names the signer exactly as the token states it', async () => {
-    const [checked] = await checkTimestamps(TIMESTAMPED);
+    const [checked] = await checkSignatures(TIMESTAMPED);
     expect(checked.signedBy).toMatch(/DigiCert/);
   });
 
@@ -77,7 +77,7 @@ describe('checkTimestamps', () => {
     const [, firstLength] = findSignatures(TIMESTAMPED)[0].byteRange;
     tampered[Math.floor(firstLength / 2)] ^= 0xff;
 
-    const [checked] = await checkTimestamps(tampered);
+    const [checked] = await checkSignatures(tampered);
     expect(checked.verdict).toBe('altered');
     expect(checked.detail).toMatch(/changed since it was timestamped/);
   });
@@ -87,7 +87,7 @@ describe('checkTimestamps', () => {
     const tampered = new Uint8Array(TIMESTAMPED);
     tampered[200] ^= 0xff;
 
-    const [checked] = await checkTimestamps(tampered);
+    const [checked] = await checkSignatures(tampered);
     expect(checked.time).toBeInstanceOf(Date);
   });
 
@@ -98,11 +98,11 @@ describe('checkTimestamps', () => {
     // Flip a hex digit deep inside the token, well past its header.
     forged[firstLength + 2000] = forged[firstLength + 2000] === 0x41 ? 0x42 : 0x41;
 
-    const [checked] = await checkTimestamps(forged);
+    const [checked] = await checkSignatures(forged);
     expect(['broken', 'unreadable']).toContain(checked.verdict);
   });
 
   it('returns nothing for a document with no timestamp', async () => {
-    expect(await checkTimestamps(plain)).toEqual([]);
+    expect(await checkSignatures(plain)).toEqual([]);
   });
 });

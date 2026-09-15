@@ -21,6 +21,15 @@ export interface FoundSignature {
   /** `/Type`, which is `DocTimeStamp` for a timestamp and `Sig` for a signature. */
   readonly type: string | null;
   /**
+   * What the signer typed, read straight out of the dictionary.
+   *
+   * Covered by the signature, so nobody else can have changed them — and
+   * asserted by the signer, so nothing checks they were ever true.
+   */
+  readonly reason: string | null;
+  readonly location: string | null;
+  readonly name: string | null;
+  /**
    * Whether the range reaches the end of the file.
    *
    * When it does not, something was appended after this signature was made and
@@ -37,6 +46,37 @@ const latin1 = (bytes: Uint8Array) => new TextDecoder('latin1').decode(bytes);
 function nameEntry(text: string, key: string): string | null {
   const match = new RegExp(`/${key}\\s*/([A-Za-z0-9.\\-_]+)`).exec(text);
   return match ? match[1] : null;
+}
+
+/**
+ * Read `/Key (value)` out of a region of dictionary text.
+ *
+ * PDF escapes `(`, `)` and `\` inside a literal string with a backslash, so the
+ * closing parenthesis is the first unescaped one rather than the first one.
+ * Getting that wrong truncates a reason containing a bracket, which is exactly
+ * the kind of text a reason contains.
+ */
+function stringEntry(text: string, key: string): string | null {
+  const at = new RegExp(`/${key}\\s*\\(`).exec(text);
+  if (!at) return null;
+
+  let out = '';
+  let depth = 1;
+  for (let i = at.index + at[0].length; i < text.length; i += 1) {
+    const character = text[i];
+    if (character === '\\') {
+      out += text[i + 1] ?? '';
+      i += 1;
+      continue;
+    }
+    if (character === '(') depth += 1;
+    if (character === ')') {
+      depth -= 1;
+      if (depth === 0) return out;
+    }
+    out += character;
+  }
+  return null;
 }
 
 function parseHex(hex: string): Uint8Array {
@@ -81,15 +121,20 @@ export function findSignatures(pdf: Uint8Array): FoundSignature[] {
     // The dictionary's other keys, read either side of the hex blob rather than
     // through it.
     const objectStart = Math.max(0, text.lastIndexOf(' obj', match.index));
+    // Generous on the second half: a signature's own fields are written after
+    // `/Contents`, and a reason can be a sentence rather than a word.
     const dictionary =
       text.slice(objectStart, first + firstLength) +
-      text.slice(second, Math.min(text.length, second + 400));
+      text.slice(second, Math.min(text.length, second + 2_000));
 
     found.push({
       byteRange: [first, firstLength, second, secondLength],
       token,
       subFilter: nameEntry(dictionary, 'SubFilter'),
       type: nameEntry(dictionary, 'Type'),
+      reason: stringEntry(dictionary, 'Reason'),
+      location: stringEntry(dictionary, 'Location'),
+      name: stringEntry(dictionary, 'Name'),
       coversToEndOfFile: isEndOfFile(pdf, second + secondLength),
     });
   }

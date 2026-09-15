@@ -1273,32 +1273,40 @@
                 <span>
                   <strong>Sign with a certificate</strong>
                   <span class="check-note">
-                    Signs the finished bytes with a private key you supply. This is the one thing
-                    here that proves something: that whoever held that key signed this file, and
-                    that it has not changed since.
+                    Signs the finished bytes with a key you supply — the one thing here that
+                    proves anything: that whoever held that key signed this file, and that it has
+                    not changed since.
                   </span>
                 </span>
               </label>
             </div>
 
             {#if wantCertificate}
-              <div class="field">
-                <span class="field-label">Key file</span>
-                <input
-                  bind:this={keyInput}
-                  class="input"
-                  type="file"
-                  accept=".p12,.pfx,.pem,.key,application/x-pkcs12"
-                  onchange={(event) => void takeKeyFile(event.currentTarget.files?.[0])}
-                />
-                <p class="field-note">
-                  A <code>.p12</code>, <code>.pfx</code> or <code>.pem</code> holding your
-                  certificate and its private key. It is read here and never sent anywhere; the
-                  password is used to open it and then forgotten.
-                </p>
-              </div>
+              <!--
+                The chooser goes once the key is open. What replaced it says the
+                same things — which file, what format — and "Use a different key
+                file" below is the way back, so leaving the input here as well
+                put two controls for one job on the screen at once.
+              -->
+              {#if !identities}
+                <div class="field">
+                  <span class="field-label">Key file</span>
+                  <input
+                    bind:this={keyInput}
+                    class="input"
+                    type="file"
+                    accept=".p12,.pfx,.pem,.key,application/x-pkcs12"
+                    onchange={(event) => void takeKeyFile(event.currentTarget.files?.[0])}
+                  />
+                  <p class="field-note">
+                    A <code>.p12</code>, <code>.pfx</code> or <code>.pem</code> with your
+                    certificate and key. Read here, never sent; the password opens it and is then
+                    forgotten.
+                  </p>
+                </div>
+              {/if}
 
-              {#if keyKind && !keyKind.reason}
+              {#if keyKind && !keyKind.reason && !identities}
                 <div class="facts">
                   <div><span>File</span><strong>{keyName}</strong></div>
                   <div><span>Format</span><strong>{keyKind.format}</strong></div>
@@ -1362,6 +1370,12 @@
 
                 {#if identity}
                   <div class="facts">
+                    <div><span>Key file</span><strong>{keyName}</strong></div>
+                    <!--
+                      Kept after the chooser goes: "older encryption" is how a
+                      reader learns the fallback was fetched to open it.
+                    -->
+                    <div><span>Format</span><strong>{keyKind?.format}</strong></div>
                     <div><span>Certificate</span><strong>{identity.subject}</strong></div>
                     <div><span>Issued by</span><strong>{identity.issuer}</strong></div>
                     <div>
@@ -1381,31 +1395,28 @@
                           ? 'past its expiry date'
                           : 'not valid yet'}.
                       </strong>
-                      It will still make a sound signature — the mathematics do not expire — but a
+                      It still makes a sound signature — the mathematics do not expire — but a
                       reader will say so, and whether that matters is between you and whoever
-                      receives the document.
+                      receives it.
                     </div>
                   {/if}
 
                   {#if identity.chain.length > 0}
                     <div class="notice ok">
-                      This file carries {identity.chain.length} issuer certificate{identity.chain
+                      It carries {identity.chain.length} issuer certificate{identity.chain
                         .length === 1
                         ? ''
-                        : 's'} as well as your own, and they go into the signature — so whoever
-                      receives the document can trace it back rather than taking the name on trust.
+                        : 's'} as well as your own. They go into the signature, so a recipient can
+                      trace it back rather than take the name on trust.
                     </div>
                   {:else if supplied.length === 0}
                     <div class="notice">
                       <strong>This file holds no issuer certificates.</strong>
-                      A signature is meant to carry the certificates above it, so that whoever
-                      receives the document can trace it back. Without them a reader that does not
-                      already hold {identity.issuer} will show your name and no way to check it.
-                      <br /><br />
-                      Add them below, or export the key file again with the full certification path
-                      included. Your certificate authority publishes them — for this one, look for
-                      the issuing and root certificates of
-                      <strong>{identity.issuer}</strong>.
+                      A signature should carry the certificates above it, so a recipient can trace
+                      it back. Without them, a reader that does not already hold
+                      <strong>{identity.issuer}</strong> shows your name and no way to check it.
+                      Add them below, or re-export the key file with its full certification path —
+                      your authority publishes both.
                     </div>
                   {/if}
 
@@ -1421,8 +1432,8 @@
                       />
                       <p class="field-note">
                         A <code>.pem</code> bundle, a <code>.crt</code> or a <code>.p7b</code>.
-                        They are public certificates, not secrets, and they are read here and
-                        embedded in the signature — nothing is sent anywhere.
+                        Public certificates, not secrets — read here and embedded in the
+                        signature. Nothing is sent.
                       </p>
                     </div>
 
@@ -1443,10 +1454,10 @@
                             </span>
                           {/each}
                         </span>
-                        Checking that each certificate was signed by the next is arithmetic, and it
-                        is all that is checked. Whether {links[links.length - 1]?.issuer ??
-                          'the authority at the top'} deserves to be believed is for the reader's
-                        PDF software to judge, against a list this app does not have.
+                        Each was checked against the next, which is arithmetic and all that is
+                        checked. Whether {links[links.length - 1]?.issuer ??
+                          'the authority at the top'} deserves belief is the reader's PDF
+                        software's judgement, against a list this app does not have.
                       </div>
                     {/if}
                   {/if}
@@ -1506,9 +1517,9 @@
                     />
                   </div>
                   <p class="field-note">
-                    All three are voluntary, and one left empty is left out rather than written
-                    blank. They go into the signature, so nobody else can change them — and nothing
-                    checks they are true.
+                    All voluntary; an empty one is left out, not written blank. They go into the
+                    signature, so nobody else can change them — and nothing checks they are
+                    true.
                   </p>
 
                   {#if visibleBlock}
@@ -1549,21 +1560,21 @@
 
                     {#if blockPreview && !blockPreview.fits}
                       <div class="notice warn">
-                        <strong>There is more text here than the block can hold.</strong>
-                        It has been made as small as it can usefully be and still does not fit.
-                        Widen the block with the size slider, or shorten the reason — otherwise
-                        what is drawn will be cut off, and a document that has been signed is the
-                        wrong place for a sentence that stops halfway.
+                        <strong>More text here than the block can hold.</strong>
+                        It is as small as it can usefully be and still does not fit. Widen the
+                        block with the size slider or shorten the reason — otherwise what is drawn
+                        is cut off, and a signed document is the wrong place for a sentence that
+                        stops halfway.
                       </div>
                     {/if}
 
                     {#if blockUnsupported.length > 0}
                       <div class="notice warn">
                         <strong>Some characters cannot be drawn in the block.</strong>
-                        The face carries Latin and its accents, which is not enough for
-                        <code>{blockUnsupported.join(' ')}</code>. They would come out as empty
-                        boxes, so change the text or turn the block off — the signature itself is
-                        unaffected, and the words still go into the signature as they are.
+                        The face covers Latin and its accents, not
+                        <code>{blockUnsupported.join(' ')}</code> — those come out as empty boxes.
+                        Change the text or turn the block off; the signature is unaffected and the
+                        words still go into it as they are.
                       </div>
                     {/if}
                   {/if}

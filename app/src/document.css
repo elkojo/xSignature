@@ -292,3 +292,57 @@ kbd {
   font-family: inherit;
   font-size: 12px;
 }
+
+/*
+ * Touch.
+ *
+ * The first breakpoint this file has had. Nothing here changes the layout —
+ * the panel was built from `.field`, `.face-option` and `.facts`, which already
+ * stack, and it holds up at 360px without help. What it does not have is
+ * targets a thumb can hit: the action buttons come out at 36px and the slider
+ * track at 16px, against the 44px both Apple and Google ask for.
+ *
+ * Matched to `app.css`'s own 720px breakpoint rather than a narrower one, so
+ * there is one place where this app decides it is on a small screen.
+ */
+@media (max-width: 720px) {
+  .sheet .overlay {
+    /* Easier to grab, without changing where the signature actually lands. */
+    outline-offset: 2px;
+  }
+
+  .action-group .button,
+  .action-group .button.small {
+    min-height: 44px;
+  }
+
+  .slider {
+    max-width: none;
+    height: 28px;
+  }
+
+  /*
+   * A range input draws its own thumb, and the default one is small. Both
+   * engines need telling separately — there is no shorthand that covers them.
+   */
+  .slider::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+  }
+
+  .slider::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+    border: none;
+  }
+
+  /*
+   * A file input is the platform's own control and cannot be restyled far, but
+   * it can be given room: at this width the button and the filename otherwise
+   * share a line too narrow for either.
+   */
+  .field input[type='file'] {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+}

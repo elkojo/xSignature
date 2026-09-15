@@ -290,6 +290,53 @@ describe('widgetRect', () => {
   });
 });
 
+describe('widgetRect, round-tripped', () => {
+  /** Map a page-space rectangle back to fractions of the displayed page. */
+  function backToFractions(
+    page: PageGeometry,
+    [x1, y1, x2, y2]: readonly [number, number, number, number],
+  ) {
+    const { width: pw, height: ph } = page;
+    const view = displayedSize(page);
+    const box =
+      page.rotation === 0
+        ? { x: x1 - page.x, y: ph - (y2 - page.y), w: x2 - x1, h: y2 - y1 }
+        : page.rotation === 90
+          ? { x: y1 - page.y, y: x1 - page.x, w: y2 - y1, h: x2 - x1 }
+          : page.rotation === 180
+            ? { x: pw - (x2 - page.x), y: y1 - page.y, w: x2 - x1, h: y2 - y1 }
+            : { x: ph - (y2 - page.y), y: pw - (x2 - page.x), w: y2 - y1, h: x2 - x1 };
+
+    return { x: box.x / view.width, y: box.y / view.height, width: box.w / view.width };
+  }
+
+  it('puts the block where the reader dragged it, at every rotation', () => {
+    // The property that matters and the one hardest to see from the code: a
+    // rectangle dragged on the displayed page has to come back to the same
+    // place on the displayed page, whichever way the page is stored. Verified
+    // against rendered output once; kept honest here.
+    const asked = { x: 0.55, y: 0.8, width: 0.4, height: 0.06 };
+
+    for (const rotation of [0, 90, 180, 270] as const) {
+      const page: PageGeometry = { x: 0, y: 0, width: 595, height: 842, rotation };
+      const got = backToFractions(page, widgetRect(page, asked));
+
+      expect(got.x).toBeCloseTo(asked.x, 6);
+      expect(got.y).toBeCloseTo(asked.y, 6);
+      expect(got.width).toBeCloseTo(asked.width, 6);
+    }
+  });
+
+  it('round-trips on a page cropped from a larger sheet too', () => {
+    const asked = { x: 0.3, y: 0.25, width: 0.2, height: 0.1 };
+    const page: PageGeometry = { x: 24, y: 36, width: 500, height: 700, rotation: 90 };
+    const got = backToFractions(page, widgetRect(page, asked));
+
+    expect(got.x).toBeCloseTo(asked.x, 6);
+    expect(got.y).toBeCloseTo(asked.y, 6);
+  });
+});
+
 describe('appearanceMatrix', () => {
   it('is the identity on a page that is not turned', () => {
     expect(appearanceMatrix(0)).toEqual([1, 0, 0, 1, 0, 0]);

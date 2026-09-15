@@ -273,3 +273,37 @@ describe('a signature that carries its own timestamp', () => {
     expect(stamped.token.length).toBeLessThan(16_384);
   });
 });
+
+describe('the certificates a signature carries', () => {
+  it('embeds a chain supplied alongside a leaf-only key file', async () => {
+    // The case a real certificate authority produces: the key file holds the
+    // signer's certificate and nothing above it, so the issuers are added
+    // separately and have to reach the signature.
+    const { makeChain } = await import('../read/fixtures/make-keys');
+    const { orderChain, readCertificates } = await import('../read/chain');
+    const { Certificate } = await import('pkijs');
+
+    const made = await makeChain();
+    const [onlyLeaf] = await readKeyFile('leaf.p12', made.leafOnlyP12, made.password);
+    expect(onlyLeaf.chain).toHaveLength(0);
+
+    const issuers = orderChain(
+      Certificate.fromBER(made.leaf.slice().buffer as ArrayBuffer),
+      readCertificates(new TextEncoder().encode(made.bundlePem)),
+    );
+
+    const signed = await applyCertificateSignature(await blank(), { ...onlyLeaf, chain: issuers });
+    const [checked] = await checkSignatures(signed.bytes);
+
+    expect(checked.verdict).toBe('intact');
+    // The signer plus the two above it.
+    expect(checked.certificateCount).toBe(3);
+  }, 60_000);
+
+  it('carries only the signer when nothing was supplied', async () => {
+    const signed = await applyCertificateSignature(await blank(), identity);
+    const [checked] = await checkSignatures(signed.bytes);
+
+    expect(checked.certificateCount).toBe(1);
+  });
+});

@@ -133,3 +133,101 @@ export async function makeKeyFiles(options: KeyFileOptions = {}): Promise<KeyFil
     commonName,
   };
 }
+
+export interface GeneratedChain {
+  /** The signer's own certificate, as DER. */
+  readonly leaf: Uint8Array;
+  /** Intermediate and root, in that order, as a PEM bundle. */
+  readonly bundlePem: string;
+  /** The same two as a single DER file each. */
+  readonly intermediateDer: Uint8Array;
+  readonly rootDer: Uint8Array;
+  /** A `.p12` holding the leaf and its key, and nothing above it. */
+  readonly leafOnlyP12: Uint8Array;
+  readonly password: string;
+}
+
+/**
+ * A real three-level chain: root signs intermediate signs leaf.
+ *
+ * Built rather than captured, like everything else here, because a captured one
+ * would be somebody's actual certificate. What matters for the tests is that
+ * the signatures between the three genuinely verify — a chain assembled from
+ * unrelated certificates would pass a test that only compared names.
+ */
+export async function makeChain(password = 'test123'): Promise<GeneratedChain> {
+  const utf8 = (value: string) => ({
+    value,
+    valueTagClass: forge.asn1.Type.UTF8 as unknown as number,
+  });
+  const nameFor = (common: string): forge.pki.CertificateField[] => [
+    { name: 'commonName', ...utf8(common) },
+    { name: 'organizationName', ...utf8('xSignature Test PKI') },
+    { name: 'countryName', value: 'CZ' },
+  ];
+
+  async function keyPair() {
+    const pair = await crypto.subtle.generateKey(
+      { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      true,
+      ['sign', 'verify'],
+    );
+    const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
+    return forge.pki.privateKeyFromAsn1(
+      forge.asn1.fromDer(forge.util.createBuffer(toBinary(pkcs8))),
+    ) as forge.pki.rsa.PrivateKey;
+  }
+
+  const rootKey = await keyPair();
+  const interKey = await keyPair();
+  const leafKey = await keyPair();
+
+  function certificate(
+    subject: forge.pki.CertificateField[],
+    issuer: forge.pki.CertificateField[],
+    ownKey: forge.pki.rsa.PrivateKey,
+    signingKey: forge.pki.rsa.PrivateKey,
+    serial: string,
+    ca: boolean,
+  ) {
+    const cert = forge.pki.createCertificate();
+    cert.publicKey = forge.pki.setRsaPublicKey(ownKey.n, ownKey.e);
+    cert.serialNumber = serial;
+    cert.validity.notBefore = new Date(Date.UTC(2020, 0, 1));
+    cert.validity.notAfter = new Date(Date.UTC(2039, 0, 1));
+    cert.setSubject(subject);
+    cert.setIssuer(issuer);
+    cert.setExtensions([{ name: 'basicConstraints', cA: ca }]);
+    cert.sign(signingKey, forge.md.sha256.create());
+    return cert;
+  }
+
+  const rootName = nameFor('Test Root CA');
+  const interName = nameFor('Test Issuing CA');
+  const leafName = nameFor('Jiří Novák');
+
+  const root = certificate(rootName, rootName, rootKey, rootKey, '01', true);
+  const intermediate = certificate(interName, rootName, interKey, rootKey, '02', true);
+  const leaf = certificate(leafName, interName, leafKey, interKey, '03', false);
+
+  const der = (cert: forge.pki.Certificate) =>
+    fromBinary(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes());
+
+  return {
+    leaf: der(leaf),
+    bundlePem: forge.pki.certificateToPem(intermediate) + forge.pki.certificateToPem(root),
+    intermediateDer: der(intermediate),
+    rootDer: der(root),
+    leafOnlyP12: fromBinary(
+      forge.asn1
+        .toDer(
+          forge.pkcs12.toPkcs12Asn1(leafKey, [leaf], password, {
+            algorithm: 'aes256',
+            generateLocalKeyId: true,
+          }),
+        )
+        .getBytes(),
+    ),
+    password,
+  };
+}

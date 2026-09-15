@@ -235,6 +235,38 @@
               </div>
             </div>
 
+            {#if !result.isTimestamp && result.certificateCount > 0}
+              <!--
+                Whether the signature brought the certificates a reader needs to
+                trace it. This is the half the recipient cares about, and the
+                half a leaf-only key file leaves out.
+              -->
+              {#if result.chain.length > 0}
+                <div class="notice ok">
+                  <strong>It carries the certificates above it.</strong>
+                  <span class="outgoing-list">
+                    {#each result.chain as link}
+                      <span>
+                        {link.holds ? '✓' : '✗'}
+                        <strong>{link.subject}</strong> signed by <strong>{link.issuer}</strong>
+                        {link.holds ? '' : ' — but that signature does not hold'}
+                      </span>
+                    {/each}
+                  </span>
+                  Each of those was checked against the next, which is arithmetic. Whether the
+                  authority at the top deserves to be believed is the judgement below.
+                </div>
+              {:else}
+                <div class="notice warn">
+                  <strong>This signature carries no issuer certificates.</strong>
+                  Only the signer's own. There is nothing here to trace it back through, so unless
+                  your PDF reader already holds {result.signedBy ?? 'that authority'}'s issuer, it
+                  will show a name it cannot check. That is a fault in how the document was signed,
+                  not in the signature — the bytes are still intact.
+                </div>
+              {/if}
+            {/if}
+
             {#if result.claims && !result.isTimestamp}
               <!--
                 The certificate's own statements, kept carefully apart from the

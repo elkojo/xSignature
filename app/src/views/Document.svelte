@@ -45,6 +45,7 @@
   import { downloadBlob } from '../lib/signature/download';
   import { toPathData } from '../lib/signature/path';
   import { PDFDocument } from '@cantoo/pdf-lib';
+  import { checkLinks, orderChain, readCertificates, type ChainLink } from '../lib/document/certificate/read/chain';
   import {
     detectKeyFile,
     readKeyFile,
@@ -438,6 +439,65 @@
   /** Visible puts a block on the page; invisible signs and shows nothing. */
   let visibleBlock = $state(true);
 
+  /**
+   * Issuer certificates, when the key file did not bring its own.
+   *
+   * A signature is meant to carry the certificates a reader needs to trace it
+   * back — and plenty of key files hold only the signer's. Supplying them here
+   * is not this app vouching for anybody: they are included in the signature,
+   * and the judgement stays with whatever opens the document, which is where a
+   * maintained list of authorities and a working revocation check actually
+   * exist.
+   */
+  let issuerName = $state('');
+  let issuerError = $state('');
+  let issuerInput = $state<HTMLInputElement | null>(null);
+  let supplied = $state<Awaited<ReturnType<typeof readKeyFile>>[number]['chain']>([]);
+  let links = $state<ChainLink[]>([]);
+
+  /** The chain that will actually be embedded: the file's own, or what was added. */
+  let chain = $derived(identity ? (identity.chain.length > 0 ? identity.chain : supplied) : []);
+
+  async function takeIssuers(file: File | undefined) {
+    if (!file || !identity) return;
+    issuerError = '';
+    const found = readCertificates(new Uint8Array(await file.arrayBuffer()));
+
+    if (found.length === 0) {
+      issuerError =
+        'No certificate could be read from that file. A .pem bundle, a .crt or a .p7b from your ' +
+        'certificate authority will work.';
+      return;
+    }
+
+    const ordered = orderChain(identity.certificate, found);
+    if (ordered.length === 0) {
+      issuerError =
+        'None of the certificates in that file signed yours, so they do not continue this chain. ' +
+        'It may be for a different certificate.';
+      return;
+    }
+
+    supplied = ordered;
+    issuerName = file.name;
+    links = await checkLinks(identity.certificate, ordered);
+  }
+
+  function clearIssuers() {
+    supplied = [];
+    links = [];
+    issuerName = '';
+    issuerError = '';
+    if (issuerInput) issuerInput.value = '';
+  }
+
+  // A different key means a different chain; keeping the old one would embed
+  // certificates that have nothing to do with the new signer.
+  $effect(() => {
+    void identity;
+    clearIssuers();
+  });
+
   let logoBytes = $state<Uint8Array<ArrayBuffer> | null>(null);
   let logoType = $state('');
   let logoName = $state('');
@@ -611,7 +671,8 @@
     input: Uint8Array,
     timestamp?: TimestampSource,
   ): Promise<SignedPdf> {
-    const material = identity!;
+    // The file's own chain when it has one, otherwise whatever was added here.
+    const material = { ...identity!, chain };
     const details = {
       name: signerName || undefined,
       reason: signerReason || undefined,
@@ -1326,13 +1387,68 @@
                     </div>
                   {/if}
 
-                  {#if identity.chain.length === 0}
-                    <div class="notice">
-                      This file holds your certificate and no issuer certificates, so the signature
-                      carries none. A reader that does not already hold {identity.issuer} will not
-                      be able to work out who you are from the document alone. Exporting the key
-                      file again with the full certification path included fixes that.
+                  {#if identity.chain.length > 0}
+                    <div class="notice ok">
+                      This file carries {identity.chain.length} issuer certificate{identity.chain
+                        .length === 1
+                        ? ''
+                        : 's'} as well as your own, and they go into the signature — so whoever
+                      receives the document can trace it back rather than taking the name on trust.
                     </div>
+                  {:else if supplied.length === 0}
+                    <div class="notice">
+                      <strong>This file holds no issuer certificates.</strong>
+                      A signature is meant to carry the certificates above it, so that whoever
+                      receives the document can trace it back. Without them a reader that does not
+                      already hold {identity.issuer} will show your name and no way to check it.
+                      <br /><br />
+                      Add them below, or export the key file again with the full certification path
+                      included. Your certificate authority publishes them — for this one, look for
+                      the issuing and root certificates of
+                      <strong>{identity.issuer}</strong>.
+                    </div>
+                  {/if}
+
+                  {#if identity.chain.length === 0}
+                    <div class="field">
+                      <span class="field-label">Issuer certificates</span>
+                      <input
+                        bind:this={issuerInput}
+                        class="input"
+                        type="file"
+                        accept=".pem,.crt,.cer,.p7b,.p7c,application/x-pkcs7-certificates"
+                        onchange={(event) => void takeIssuers(event.currentTarget.files?.[0])}
+                      />
+                      <p class="field-note">
+                        A <code>.pem</code> bundle, a <code>.crt</code> or a <code>.p7b</code>.
+                        They are public certificates, not secrets, and they are read here and
+                        embedded in the signature — nothing is sent anywhere.
+                      </p>
+                    </div>
+
+                    {#if issuerError}
+                      <div class="notice bad">{issuerError}</div>
+                    {/if}
+
+                    {#if supplied.length > 0}
+                      <div class="notice ok">
+                        <strong>{issuerName} continues this chain.</strong>
+                        <span class="outgoing-list">
+                          {#each links as link}
+                            <span>
+                              {link.holds ? '✓' : '✗'}
+                              <strong>{link.subject}</strong> signed by
+                              <strong>{link.issuer}</strong>
+                              {link.holds ? '' : ' — but that signature does not hold'}
+                            </span>
+                          {/each}
+                        </span>
+                        Checking that each certificate was signed by the next is arithmetic, and it
+                        is all that is checked. Whether {links[links.length - 1]?.issuer ??
+                          'the authority at the top'} deserves to be believed is for the reader's
+                        PDF software to judge, against a list this app does not have.
+                      </div>
+                    {/if}
                   {/if}
 
                   <div class="action-group">

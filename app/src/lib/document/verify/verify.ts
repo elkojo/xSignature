@@ -33,8 +33,9 @@
  * regardless.
  */
 import * as asn1js from 'asn1js';
-import { ContentInfo, SignedData, TSTInfo } from 'pkijs';
+import { Certificate, ContentInfo, SignedData, TSTInfo } from 'pkijs';
 
+import { checkLinks, orderChain, type ChainLink } from '../certificate/read/chain';
 import { digestedBytes } from '../timestamp/byte-range';
 import { claimsOf, type CertificateClaims } from './claims';
 import { findSignatures, isDocumentTimestamp, type FoundSignature } from './find';
@@ -78,6 +79,15 @@ export interface CheckedSignature {
    * no certificate to read.
    */
   readonly claims: CertificateClaims | null;
+  /**
+   * The certificates above the signer's, and whether each really signed the
+   * next.
+   *
+   * Empty when the signature carries none, which is worth saying: a reader with
+   * no chain has a name and no way to trace it. Arithmetic only — that these
+   * certificates hang together, not that the one at the top is worth believing.
+   */
+  readonly chain: readonly ChainLink[];
   /**
    * A timestamp carried *inside* this signature, when it has one.
    *
@@ -131,6 +141,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
       policy: null,
       certificateCount: 0,
       claims: null,
+      chain: [],
       timestamp: null,
       detail: 'The token in this file could not be read.',
     };
@@ -157,6 +168,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
         policy: null,
         certificateCount: signed.certificates?.length ?? 0,
         claims: claimsOfSigner(signed),
+        chain: [],
         timestamp: null,
         detail: 'The token in this file could not be read as a timestamp.',
       };
@@ -172,6 +184,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
     policy,
     certificateCount: signed.certificates?.length ?? 0,
     claims: claimsOfSigner(signed),
+    chain: await chainOf(signed),
     timestamp: await embeddedTimestampOf(signed),
   };
 
@@ -256,6 +269,24 @@ function signingTimeOf(signed: SignedData): Date | null {
     return value.toDate();
   }
   return null;
+}
+
+/**
+ * The chain a signature carries, checked link by link.
+ *
+ * The signer's certificate is the first one in a CMS structure by convention
+ * and the rest are whatever the signer included, in no particular order — so
+ * they are sorted into chain order before being checked, exactly as they are
+ * when somebody supplies them on the signing screen.
+ */
+async function chainOf(signed: SignedData): Promise<ChainLink[]> {
+  const certificates = (signed.certificates ?? []).filter(
+    (candidate): candidate is Certificate => 'subject' in candidate,
+  );
+  const [leaf, ...rest] = certificates;
+  if (!leaf || rest.length === 0) return [];
+
+  return checkLinks(leaf, orderChain(leaf, rest));
 }
 
 /** What the signing certificate declares, when there is one to read. */

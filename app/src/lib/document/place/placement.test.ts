@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  appearanceMatrix,
   concat,
   displayedSize,
   fitInside,
   normalizeRotation,
   placementMatrix,
   unitSquareToBox,
+  widgetRect,
   type Matrix,
   type PageGeometry,
   type Rotation,
@@ -221,5 +223,98 @@ describe('concat and unitSquareToBox', () => {
     // And its bottom-right against theirs.
     expect(apply(image, 1, 0).x).toBeCloseTo(apply(outlines, ink.width, ink.height).x, 9);
     expect(apply(image, 1, 0).y).toBeCloseTo(apply(outlines, ink.width, ink.height).y, 9);
+  });
+});
+
+describe('widgetRect', () => {
+  const plain = { x: 0, y: 0, width: 400, height: 800, rotation: 0 } as const;
+  const box = { x: 0.25, y: 0.5, width: 0.5, height: 0.25 };
+
+  it('turns a dragged box into page coordinates, lower-left first', () => {
+    const [x1, y1, x2, y2] = widgetRect(plain, box);
+
+    // The box sits 0.5 to 0.75 of the way down the display, and user space
+    // counts the other way: 800 - 600 = 200 at the bottom, 800 - 400 = 400 up.
+    expect([x1, y1, x2, y2]).toEqual([100, 200, 300, 400]);
+    expect(x1).toBeLessThan(x2);
+    expect(y1).toBeLessThan(y2);
+  });
+
+  it('carries the crop box offset, for a page cropped from a larger sheet', () => {
+    const cropped = { ...plain, x: 20, y: 30 };
+    const [x1, y1, x2, y2] = widgetRect(cropped, box);
+
+    expect([x1, y1, x2, y2]).toEqual([120, 230, 320, 430]);
+  });
+
+  it('gives a lower-left-first rectangle at every rotation', () => {
+    for (const rotation of [0, 90, 180, 270] as const) {
+      const [x1, y1, x2, y2] = widgetRect({ ...plain, rotation }, box);
+
+      expect(x1).toBeLessThan(x2);
+      expect(y1).toBeLessThan(y2);
+      // Still inside the page, whichever way it is stored.
+      expect(x1).toBeGreaterThanOrEqual(0);
+      expect(y1).toBeGreaterThanOrEqual(0);
+      expect(x2).toBeLessThanOrEqual(plain.width);
+      expect(y2).toBeLessThanOrEqual(plain.height);
+    }
+  });
+
+  it('swaps the sides on a quarter turn', () => {
+    // The page is displayed 800 wide by 400 tall, so a box that is wide on
+    // screen is tall in the page's own coordinates.
+    const turned = widgetRect({ ...plain, rotation: 90 }, box);
+    const width = turned[2] - turned[0];
+    const height = turned[3] - turned[1];
+
+    expect(height).toBeCloseTo(0.5 * 800, 6);
+    expect(width).toBeCloseTo(0.25 * 400, 6);
+  });
+
+  it('agrees with where the signature itself is placed', () => {
+    // The block's rectangle and the ink's matrix have to describe the same
+    // spot, or a visible signature sits somewhere its own outline does not.
+    for (const rotation of [0, 90, 180, 270] as const) {
+      const page = { ...plain, rotation };
+      const [x1, y1, x2, y2] = widgetRect(page, box);
+      // A square signature exactly filling the box: its matrix translation is
+      // one of the box's corners in user space.
+      const [, , , , e, f] = placementMatrix(page, box, { width: 1, height: 1 });
+
+      expect(e).toBeGreaterThanOrEqual(x1 - 0.0001);
+      expect(e).toBeLessThanOrEqual(x2 + 0.0001);
+      expect(f).toBeGreaterThanOrEqual(y1 - 0.0001);
+      expect(f).toBeLessThanOrEqual(y2 + 0.0001);
+    }
+  });
+});
+
+describe('appearanceMatrix', () => {
+  it('is the identity on a page that is not turned', () => {
+    expect(appearanceMatrix(0)).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+
+  it('turns the block against the page, so it reads upright', () => {
+    // A reader turns the whole page to display it, annotations included. The
+    // appearance has to be turned the other way first or it arrives on its side.
+    for (const rotation of [90, 180, 270] as const) {
+      const [a, b, c, d] = appearanceMatrix(rotation);
+
+      // A pure rotation: unit length, and no reflection.
+      expect(a * a + b * b).toBeCloseTo(1, 6);
+      expect(c * c + d * d).toBeCloseTo(1, 6);
+      expect(a * d - b * c).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('takes four quarter turns to get back where it started', () => {
+    const once = appearanceMatrix(90);
+    const twice = concat(once, once);
+    const fourTimes = concat(twice, twice);
+
+    fourTimes.forEach((value, index) => {
+      expect(value).toBeCloseTo(appearanceMatrix(0)[index], 6);
+    });
   });
 });

@@ -181,3 +181,87 @@ export function concat(first: Matrix, second: Matrix): Matrix {
 export function unitSquareToBox(width: number, height: number): Matrix {
   return [width, 0, 0, -height, 0, height];
 }
+
+/**
+ * Where a display point lands in the page's own coordinates.
+ *
+ * The translation halves of `placementMatrix`, pulled out so that a rectangle
+ * can be mapped as well as a signature. A display point is y-down from the top
+ * left of the page *as shown*; what comes back is y-up in user space, crop box
+ * offset included.
+ */
+function toUserSpace(page: PageGeometry, dx: number, dy: number): { x: number; y: number } {
+  const { x: cx, y: cy, width: pw, height: ph } = page;
+
+  switch (page.rotation) {
+    case 0:
+      return { x: cx + dx, y: cy + ph - dy };
+    case 90:
+      return { x: cx + dy, y: cy + dx };
+    case 180:
+      return { x: cx + pw - dx, y: cy + dy };
+    case 270:
+      return { x: cx + pw - dy, y: cy + ph - dx };
+  }
+}
+
+/**
+ * The rectangle an annotation needs, in the page's own coordinates.
+ *
+ * A widget's `/Rect` is axis-aligned in user space, but the reader dragged a box
+ * on the page *as displayed* — and on a page stored rotated those are different
+ * rectangles. All four corners are mapped and the bounding box taken, which is
+ * the same rectangle for any rotation because a quarter turn maps a rectangle
+ * to a rectangle.
+ *
+ * Returned in PDF's order, `[x1, y1, x2, y2]` with the lower-left corner first,
+ * which is what a reader expects and what several will silently mis-draw if it
+ * arrives the other way round.
+ */
+export function widgetRect(
+  page: PageGeometry,
+  rect: ViewRect,
+): [number, number, number, number] {
+  const view = displayedSize(page);
+  const left = rect.x * view.width;
+  const top = rect.y * view.height;
+  const right = (rect.x + rect.width) * view.width;
+  const bottom = (rect.y + rect.height) * view.height;
+
+  const corners = [
+    toUserSpace(page, left, top),
+    toUserSpace(page, right, top),
+    toUserSpace(page, right, bottom),
+    toUserSpace(page, left, bottom),
+  ];
+
+  const xs = corners.map((corner) => corner.x);
+  const ys = corners.map((corner) => corner.y);
+
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+/**
+ * The matrix that keeps an appearance upright on a page stored rotated.
+ *
+ * An annotation's appearance is drawn in the page's coordinates, and a reader
+ * turns the whole page — content and annotations together — to display it. So
+ * on a page carrying `/Rotate 90`, an appearance drawn the obvious way arrives
+ * on its side. This turns it the other way first, so that what the reader sees
+ * is the block the right way up.
+ *
+ * Only the rotation is given: a form's translation is worked out by the reader,
+ * which maps the transformed bounding box into the annotation's rectangle.
+ */
+export function appearanceMatrix(rotation: Rotation): Matrix {
+  switch (rotation) {
+    case 0:
+      return [1, 0, 0, 1, 0, 0];
+    case 90:
+      return [0, 1, -1, 0, 0, 0];
+    case 180:
+      return [-1, 0, 0, -1, 0, 0];
+    case 270:
+      return [0, -1, 1, 0, 0, 0];
+  }
+}

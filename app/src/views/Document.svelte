@@ -44,6 +44,22 @@
   } from '../lib/document/signature/resolution';
   import { downloadBlob } from '../lib/signature/download';
   import { toPathData } from '../lib/signature/path';
+  import { PDFDocument } from '@cantoo/pdf-lib';
+  import {
+    detectKeyFile,
+    readKeyFile,
+    UnreadableKeyFile,
+    validityAt,
+    type DetectedKeyFile,
+    type Identity,
+  } from '../lib/document/certificate/read/read';
+  import { applyCertificateSignature, SignatureTooLarge } from '../lib/document/certificate/sign/apply';
+  import { buildAppearance, fitTextSize } from '../lib/document/certificate/appearance/block';
+  import { loadAppearanceFont } from '../lib/document/certificate/appearance/font';
+  import { blockHeightFor, detailLines, layoutBlock } from '../lib/document/certificate/appearance/layout';
+  import { widgetRect } from '../lib/document/place/placement';
+  import { unsupportedCharacters } from '../lib/signature/type/coverage';
+  import type { Font } from 'opentype.js';
 
   /** How wide the page preview is drawn, in CSS pixels. */
   const PREVIEW_WIDTH = 520;
@@ -52,7 +68,7 @@
 
   let fileName = $state('');
   let verdict = $state<Accepted | null>(null);
-  let bytes = $state<Uint8Array | null>(null);
+  let bytes = $state<Uint8Array<ArrayBuffer> | null>(null);
   let opened = $state<OpenPdf | null>(null);
   let openError = $state('');
   /** True when what is being stamped was made here rather than dropped in. */
@@ -246,8 +262,21 @@
   let rect = $derived.by(() => {
     if (!box || !geometry) return null;
     const view = displayedSize(geometry);
-    const height = ((box.height / box.width) * span * view.width) / view.height;
-    return { x: at.x, y: at.y, width: span, height };
+    const width = span * view.width;
+
+    // What is being placed is either the ink or the whole block, and they are
+    // different shapes. The block's height is derived rather than dragged, so
+    // that what the preview draws is the size the page gets.
+    const height = placingBlock
+      ? blockHeightFor({
+          width,
+          signature: box,
+          lines: blockLines.length,
+          hasLogo: logoSize !== null,
+        })
+      : (box.height / box.width) * width;
+
+    return { x: at.x, y: at.y, width: span, height: height / view.height };
   });
 
   // Keep the signature on the sheet when it is resized near an edge.
@@ -372,6 +401,163 @@
     };
   }
 
+  // ---- step 4: the certificate ----------------------------------------------
+
+  /**
+   * Off by default, like the timestamp, and for a related reason.
+   *
+   * Everything up to here puts a picture on a page, which proves nothing and
+   * says so. This step makes a different and much larger claim — that a named
+   * key signed these exact bytes — and a claim that size is one somebody has to
+   * ask for.
+   */
+  let wantCertificate = $state(false);
+
+  let keyName = $state('');
+  let keyBytes = $state<Uint8Array | null>(null);
+  let keyKind = $state<DetectedKeyFile | null>(null);
+  let keyPassword = $state('');
+  let keyError = $state('');
+  let opening = $state(false);
+  let identities = $state<Identity[] | null>(null);
+  let chosen = $state(0);
+  let keyInput = $state<HTMLInputElement | null>(null);
+
+  let identity = $derived(identities?.[chosen] ?? null);
+
+  /** What a reader would see in a signature's properties panel. */
+  let signerName = $state('');
+  let signerReason = $state('');
+  let signerLocation = $state('');
+  /** Visible puts a block on the page; invisible signs and shows nothing. */
+  let visibleBlock = $state(true);
+
+  let logoBytes = $state<Uint8Array<ArrayBuffer> | null>(null);
+  let logoType = $state('');
+  let logoName = $state('');
+  let logoSize = $state<{ width: number; height: number } | null>(null);
+  let logoError = $state('');
+  let logoInput = $state<HTMLInputElement | null>(null);
+  let logoUrl = $state('');
+
+  /** The face the block is set in, fetched once the step is opened. */
+  let blockFont = $state<Font | null>(null);
+  let fontError = $state('');
+
+  $effect(() => {
+    if (!wantCertificate || blockFont) return;
+    void loadAppearanceFont()
+      .then((font) => (blockFont = font))
+      .catch(() => (fontError = 'The face the signature block is set in could not be loaded.'));
+  });
+
+  /** A picture URL for the logo, given back when it is replaced. */
+  $effect(() => {
+    if (!logoBytes) {
+      logoUrl = '';
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([logoBytes], { type: logoType }));
+    logoUrl = url;
+    return () => URL.revokeObjectURL(url);
+  });
+
+  /** Take the key file, and say what it is before asking for a password. */
+  async function takeKeyFile(file: File | undefined) {
+    if (!file) return;
+    clearKey();
+    keyName = file.name;
+    keyBytes = new Uint8Array(await file.arrayBuffer());
+    keyKind = detectKeyFile(file.name, keyBytes);
+    if (keyKind.reason) keyError = keyKind.reason;
+  }
+
+  function clearKey() {
+    keyBytes = null;
+    keyKind = null;
+    keyError = '';
+    identities = null;
+    chosen = 0;
+    keyPassword = '';
+    signerName = '';
+  }
+
+  function forgetKey() {
+    clearKey();
+    keyName = '';
+    if (keyInput) keyInput.value = '';
+  }
+
+  async function openKey() {
+    if (!keyBytes || !keyKind) return;
+    opening = true;
+    keyError = '';
+    try {
+      identities = await readKeyFile(keyName, keyBytes, keyPassword, keyKind);
+      chosen = 0;
+      // Offered, not imposed: the certificate's own name is the obvious
+      // starting point, and the reader may say something else.
+      signerName = identities[0]?.subject ?? '';
+    } catch (cause) {
+      identities = null;
+      keyError =
+        cause instanceof UnreadableKeyFile
+          ? cause.message
+          : 'That key file could not be opened, and the reason was not one the app recognises.';
+    } finally {
+      opening = false;
+      // The password is not kept a moment longer than it takes to open the
+      // file. What survives is a key the browser owns and will not hand back.
+      keyPassword = '';
+    }
+  }
+
+  async function takeLogo(file: File | undefined) {
+    if (!file) return;
+    logoError = '';
+    const bytes = new Uint8Array(await file.arrayBuffer());
+
+    if (!looksLikePng(bytes) && !looksLikeJpeg(bytes)) {
+      logoError = 'A logo has to be a PNG or a JPEG. An SVG cannot be embedded in a PDF as a picture.';
+      return;
+    }
+    try {
+      const read = readSignatureImage(bytes, looksLikePng(bytes) ? 'image/png' : 'image/jpeg');
+      logoBytes = bytes;
+      logoType = read.type;
+      logoSize = { width: read.width, height: read.height };
+      logoName = file.name;
+    } catch {
+      logoError = 'That picture could not be read.';
+    }
+  }
+
+  function clearLogo() {
+    logoBytes = null;
+    logoSize = null;
+    logoName = '';
+    logoError = '';
+    if (logoInput) logoInput.value = '';
+  }
+
+  /** The lines the block will show, which decide how tall it is. */
+  let blockLines = $derived(
+    detailLines({
+      name: signerName,
+      reason: signerReason,
+      location: signerLocation,
+      date: new Date(),
+    }),
+  );
+
+  /** Characters the block's face cannot draw, so they are said rather than shown. */
+  let blockUnsupported = $derived(
+    blockFont ? unsupportedCharacters(blockFont, blockLines.join(' ')) : [],
+  );
+
+  /** True when what gets placed is the block rather than the signature alone. */
+  let placingBlock = $derived(wantCertificate && visibleBlock && identity !== null);
+
   // ---- the timestamp --------------------------------------------------------
 
   /**
@@ -407,6 +593,81 @@
   let saved = $state(false);
   let saveError = $state('');
 
+  /**
+   * Put the certificate signature on, building the visible block if asked.
+   *
+   * The block has to exist in the document *before* it is signed — it is part
+   * of what the signature covers, which is the whole difference between a
+   * signature and a picture that happens to sit near one. So it is written as
+   * an incremental update, the file is committed, and only then signed.
+   */
+  async function signWithCertificate(
+    input: Uint8Array,
+  ): Promise<Uint8Array<ArrayBuffer>> {
+    const material = identity!;
+    const details = {
+      name: signerName || undefined,
+      reason: signerReason || undefined,
+      location: signerLocation || undefined,
+    };
+
+    if (!placingBlock) {
+      const result = await applyCertificateSignature(input, material, { ...details, page });
+      return result.bytes;
+    }
+
+    const doc = await PDFDocument.load(input, {
+      updateMetadata: false,
+      forIncrementalUpdate: true,
+    });
+
+    const logo = logoBytes
+      ? logoType === 'image/png'
+        ? await doc.embedPng(logoBytes)
+        : await doc.embedJpg(logoBytes)
+      : undefined;
+
+    const ink =
+      signature!.kind === 'vector'
+        ? ({
+            kind: 'vector',
+            commands: signature!.commands,
+            width: signature!.width,
+            height: signature!.height,
+            color: signature!.color,
+          } as const)
+        : ({
+            kind: 'raster',
+            image:
+              signature!.type === 'image/png'
+                ? await doc.embedPng(signature!.bytes)
+                : await doc.embedJpg(signature!.bytes),
+            width: signature!.width,
+            height: signature!.height,
+          } as const);
+
+    const view = displayedSize(geometry!);
+    const appearance = buildAppearance(doc, {
+      width: rect!.width * view.width,
+      height: rect!.height * view.height,
+      signature: ink,
+      logo,
+      details: { ...details, date: new Date() },
+      font: blockFont!,
+      fontSize: BLOCK_FONT_SIZE,
+      rotation: geometry!.rotation,
+    });
+
+    const withBlock = await doc.commit({ useObjectStreams: false });
+    const result = await applyCertificateSignature(withBlock, material, {
+      ...details,
+      page,
+      rect: widgetRect(geometry!, rect!),
+      appearance,
+    });
+    return result.bytes;
+  }
+
   async function save() {
     if (!bytes || !rect || !box || !signature) return;
     if (wantTimestamp && !endpoint) {
@@ -424,7 +685,11 @@
       // document that was already stamped.
       const fresh = await openPdf(bytes);
 
-      if (signature!.kind === 'vector') {
+      if (placingBlock) {
+        // Nothing is drawn on the page: the signature goes inside the block,
+        // where it is part of what the signature covers rather than content
+        // that happens to sit underneath it.
+      } else if (signature!.kind === 'vector') {
         applyStamp(fresh.doc, fresh.pages[page], {
           page,
           rect,
@@ -447,7 +712,14 @@
         });
       }
 
-      const out = await fresh.doc.save();
+      // A visible certificate signature carries the picture itself, so the
+      // page is left alone above and the block is built instead. An invisible
+      // one, or no certificate at all, means the picture goes on the page.
+      let out = placingBlock ? bytes : await fresh.doc.save();
+
+      if (wantCertificate && identity) {
+        out = await signWithCertificate(out);
+      }
 
       if (!wantTimestamp) {
         downloadBlob(new Blob([out], { type: 'application/pdf' }), signedName());
@@ -473,8 +745,13 @@
         downloadBlob(new Blob([out], { type: 'application/pdf' }), signedName());
         saved = true;
       }
-    } catch {
-      saveError = 'The signed PDF could not be written. The document may be damaged.';
+    } catch (cause) {
+      saveError =
+        cause instanceof SignatureTooLarge
+          ? cause.message
+          : cause instanceof UnreadableKeyFile
+            ? cause.message
+            : 'The signed PDF could not be written. The document may be damaged.';
     } finally {
       saving = false;
     }
@@ -490,7 +767,16 @@
     return `${base || 'document'}-signed.pdf`;
   }
 
-  let ready = $derived(Boolean(opened && rect && signature));
+  let ready = $derived(
+    Boolean(
+      opened &&
+        rect &&
+        signature &&
+        // A certificate that was asked for but not opened is not a reason to
+        // write an unsigned file quietly.
+        (!wantCertificate || (identity && (!visibleBlock || blockFont))),
+    ),
+  );
 
   /**
    * How the placed picture works out in dots per inch.
@@ -513,15 +799,66 @@
   /** Where to draw the overlay, in the pixels the page is shown at. */
   let overlay = $derived.by(() => {
     if (!rect || !shown) return null;
-    return fitInside(
-      {
-        x: rect.x * shown.width,
-        y: rect.y * shown.height,
-        width: rect.width * shown.width,
-        height: rect.height * shown.height,
-      },
-      box?.width ?? 1,
-      box?.height ?? 1,
+    const dragged = {
+      x: rect.x * shown.width,
+      y: rect.y * shown.height,
+      width: rect.width * shown.width,
+      height: rect.height * shown.height,
+    };
+
+    // A block is exactly its rectangle — its own height was computed from its
+    // width, so there is nothing left to fit. Loose ink keeps its proportions
+    // inside the box instead.
+    return placingBlock
+      ? { ...dragged, scale: 1 }
+      : fitInside(dragged, box?.width ?? 1, box?.height ?? 1);
+  });
+
+  /**
+   * The block's insides at preview size.
+   *
+   * Computed by the same function that lays out the real thing, at the pixel
+   * size it is shown, so the preview is the result rather than a drawing of it.
+   */
+  let blockPreview = $derived.by(() => {
+    if (!placingBlock || !overlay || !box || !geometry) return null;
+
+    // The block is laid out in points on the page and shown in pixels on
+    // screen. One ratio between the two carries the text size across, so the
+    // preview's proportions are the page's.
+    const onPage = span * displayedSize(geometry).width;
+    const toScreen = onPage > 0 ? overlay.width / onPage : 1;
+
+    return layoutBlock({
+      width: overlay.width,
+      height: overlay.height,
+      signature: box,
+      logo: logoSize ?? undefined,
+      lines: blockLines.length,
+      fontSize: BLOCK_FONT_SIZE * toScreen,
+    });
+  });
+
+  /** In points, the size the block's details are set at on the page. */
+  const BLOCK_FONT_SIZE = 7;
+
+  /**
+   * Whether the details still fit once shrunk as far as is readable.
+   *
+   * The block clips what does not fit, so a reason too long for it would be cut
+   * off mid-word inside a signed document. The text is made smaller to avoid
+   * that, and when it cannot be made small enough the reader is told rather
+   * than handed something illegible.
+   */
+  let textFit = $derived.by(() => {
+    if (!placingBlock || !blockFont || !blockPreview?.textColumn || !geometry) return null;
+    const onPage = span * displayedSize(geometry).width;
+    const toScreen = blockPreview.textColumn.width / onPage;
+    return fitTextSize(
+      blockFont,
+      blockLines,
+      toScreen > 0 ? blockPreview.textColumn.width / toScreen : 0,
+      BLOCK_FONT_SIZE,
     );
   });
 
@@ -720,7 +1057,13 @@
           <div class="flow-panel">
             <h2 class="panel-title">3 · Place it, and save</h2>
             <p class="panel-copy">
-              Drag the signature to where it goes. Arrow keys nudge it; hold shift to move further.
+              {#if placingBlock}
+                Drag the signature block to where it goes. Arrow keys nudge it; hold shift to move
+                further. The block is what lands on the page — your signature sits inside it.
+              {:else}
+                Drag the signature to where it goes. Arrow keys nudge it; hold shift to move
+                further.
+              {/if}
             </p>
 
             {#if opened.pages.length > 1}
@@ -761,14 +1104,57 @@
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div
                   class="overlay"
+                  class:block={blockPreview !== null}
                   role="button"
                   tabindex="0"
-                  aria-label="Signature position — drag, or use the arrow keys"
+                  aria-label={blockPreview
+                    ? 'Signature block position — drag, or use the arrow keys'
+                    : 'Signature position — drag, or use the arrow keys'}
                   style="left: {overlay.x}px; top: {overlay.y}px; width: {overlay.width}px; height: {overlay.height}px"
                   onpointerdown={onPointerDown}
                   onkeydown={onOverlayKey}
                 >
-                  {#if signature.kind === 'vector'}
+                  {#if blockPreview}
+                    <!--
+                      The block, drawn from the same layout the page gets. What
+                      is dragged here is the whole thing, because that is what
+                      lands: the signature is inside the block, not beside it.
+                    -->
+                    <div
+                      class="block-ink"
+                      style="left: {blockPreview.signature.x}px; top: {blockPreview.signature.y}px; width: {blockPreview.signature.width}px; height: {blockPreview.signature.height}px"
+                    >
+                      {#if signature.kind === 'vector'}
+                        <svg viewBox="0 0 {signature.width} {signature.height}" aria-hidden="true">
+                          <path d={pathData} fill={signature.color} />
+                        </svg>
+                      {:else}
+                        <img src={rasterUrl} alt="" />
+                      {/if}
+                    </div>
+
+                    {#if blockPreview.logo && logoUrl}
+                      <div
+                        class="block-ink"
+                        style="left: {blockPreview.logo.x}px; top: {blockPreview.logo.y}px; width: {blockPreview.logo.width}px; height: {blockPreview.logo.height}px"
+                      >
+                        <img src={logoUrl} alt="" />
+                      </div>
+                    {/if}
+
+                    {#each blockLines as line, index}
+                      {#if blockPreview.baselines[index]}
+                        <span
+                          class="block-line"
+                          style="left: {blockPreview.baselines[index].x}px; top: {blockPreview
+                            .baselines[index].y}px; font-size: {BLOCK_FONT_SIZE *
+                          (overlay.width / (span * displayedSize(geometry!).width))}px"
+                        >
+                          {line}
+                        </span>
+                      {/if}
+                    {/each}
+                  {:else if signature.kind === 'vector'}
                     <!--
                       No transform: toSvg bakes its offset into the path data,
                       so what came back is already in the box the viewBox
@@ -786,6 +1172,255 @@
 
             {#if !signature}
               <div class="notice">Bring in a signature above and it will appear on the page.</div>
+            {/if}
+
+            <div class="field timestamp-field">
+              <label class="check">
+                <input type="checkbox" bind:checked={wantCertificate} />
+                <span>
+                  <strong>Sign with a certificate</strong>
+                  <span class="check-note">
+                    Signs the finished bytes with a private key you supply. This is the one thing
+                    here that proves something: that whoever held that key signed this file, and
+                    that it has not changed since.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {#if wantCertificate}
+              <div class="field">
+                <span class="field-label">Key file</span>
+                <input
+                  bind:this={keyInput}
+                  class="input"
+                  type="file"
+                  accept=".p12,.pfx,.pem,.key,application/x-pkcs12"
+                  onchange={(event) => void takeKeyFile(event.currentTarget.files?.[0])}
+                />
+                <p class="field-note">
+                  A <code>.p12</code>, <code>.pfx</code> or <code>.pem</code> holding your
+                  certificate and its private key. It is read here and never sent anywhere; the
+                  password is used to open it and then forgotten.
+                </p>
+              </div>
+
+              {#if keyKind && !keyKind.reason}
+                <div class="facts">
+                  <div><span>File</span><strong>{keyName}</strong></div>
+                  <div><span>Format</span><strong>{keyKind.format}</strong></div>
+                </div>
+              {/if}
+
+              {#if keyKind && !keyKind.reason && !identities}
+                <div class="field">
+                  <label for="key-password">Password</label>
+                  <input
+                    id="key-password"
+                    class="input"
+                    type="password"
+                    autocomplete="off"
+                    bind:value={keyPassword}
+                    onkeydown={(event) => {
+                      if (event.key === 'Enter') void openKey();
+                    }}
+                  />
+                  <p class="field-note">Leave it empty if the file has no password.</p>
+                </div>
+
+                <div class="action-group">
+                  <button
+                    class="button dark small"
+                    type="button"
+                    disabled={opening}
+                    onclick={() => void openKey()}
+                  >
+                    {opening ? 'Opening…' : 'Open the key file'}
+                  </button>
+                </div>
+              {/if}
+
+              {#if keyError}
+                <div class="notice bad">{keyError}</div>
+              {/if}
+
+              {#if identities && identities.length > 0}
+                {#if identities.length > 1}
+                  <div class="field">
+                    <span class="field-label">Which certificate</span>
+                    <div class="authority-list">
+                      {#each identities as option, index}
+                        <button
+                          type="button"
+                          class="face-option"
+                          class:selected={chosen === index}
+                          onclick={() => {
+                            chosen = index;
+                            signerName = option.subject;
+                          }}
+                        >
+                          <strong>{option.subject}</strong>
+                          <span>Issued by {option.issuer}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                {#if identity}
+                  <div class="facts">
+                    <div><span>Certificate</span><strong>{identity.subject}</strong></div>
+                    <div><span>Issued by</span><strong>{identity.issuer}</strong></div>
+                    <div>
+                      <span>Valid</span>
+                      <strong>
+                        {identity.validFrom.toISOString().slice(0, 10)} to {identity.validTo
+                          .toISOString()
+                          .slice(0, 10)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {#if validityAt(identity, new Date()) !== 'valid'}
+                    <div class="notice warn">
+                      <strong>
+                        This certificate is {validityAt(identity, new Date()) === 'expired'
+                          ? 'past its expiry date'
+                          : 'not valid yet'}.
+                      </strong>
+                      It will still make a sound signature — the mathematics do not expire — but a
+                      reader will say so, and whether that matters is between you and whoever
+                      receives the document.
+                    </div>
+                  {/if}
+
+                  {#if identity.chain.length === 0}
+                    <div class="notice">
+                      This file holds your certificate and no issuer certificates, so the signature
+                      carries none. A reader that does not already hold {identity.issuer} will not
+                      be able to work out who you are from the document alone. Exporting the key
+                      file again with the full certification path included fixes that.
+                    </div>
+                  {/if}
+
+                  <div class="action-group">
+                    <button class="button small" type="button" onclick={forgetKey}>
+                      Use a different key file
+                    </button>
+                  </div>
+
+                  <div class="field">
+                    <span class="field-label">Appearance</span>
+                    <div class="authority-list">
+                      <button
+                        type="button"
+                        class="face-option"
+                        class:selected={visibleBlock}
+                        onclick={() => (visibleBlock = true)}
+                      >
+                        <strong>Visible</strong>
+                        <span>A block on the page: your signature, and what you fill in below</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="face-option"
+                        class:selected={!visibleBlock}
+                        onclick={() => (visibleBlock = false)}
+                      >
+                        <strong>Invisible</strong>
+                        <span>Nothing drawn. The same signature, over the same bytes</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label for="signer-name">Name</label>
+                    <input id="signer-name" class="input" type="text" bind:value={signerName} />
+                  </div>
+                  <div class="field">
+                    <label for="signer-reason">Reason</label>
+                    <input
+                      id="signer-reason"
+                      class="input"
+                      type="text"
+                      placeholder="Why you are signing, if it matters"
+                      bind:value={signerReason}
+                    />
+                  </div>
+                  <div class="field">
+                    <label for="signer-location">Location</label>
+                    <input
+                      id="signer-location"
+                      class="input"
+                      type="text"
+                      placeholder="Where you are, if it matters"
+                      bind:value={signerLocation}
+                    />
+                  </div>
+                  <p class="field-note">
+                    All three are voluntary, and one left empty is left out rather than written
+                    blank. They go into the signature, so nobody else can change them — and nothing
+                    checks they are true.
+                  </p>
+
+                  {#if visibleBlock}
+                    <div class="field">
+                      <label class="check">
+                        <input
+                          type="checkbox"
+                          checked={logoBytes !== null}
+                          onchange={(event) => {
+                            if (!event.currentTarget.checked) clearLogo();
+                            else logoInput?.click();
+                          }}
+                        />
+                        <span>
+                          <strong>Show a logo</strong>
+                          <span class="check-note">
+                            A picture of your own, under the signature. {logoName || 'PNG or JPEG.'}
+                          </span>
+                        </span>
+                      </label>
+                      <input
+                        bind:this={logoInput}
+                        class="input"
+                        type="file"
+                        accept="image/png,image/jpeg"
+                        hidden
+                        onchange={(event) => void takeLogo(event.currentTarget.files?.[0])}
+                      />
+                    </div>
+
+                    {#if logoError}
+                      <div class="notice bad">{logoError}</div>
+                    {/if}
+
+                    {#if fontError}
+                      <div class="notice bad">{fontError}</div>
+                    {/if}
+
+                    {#if textFit && !textFit.fits}
+                      <div class="notice warn">
+                        <strong>There is more text here than the block can hold.</strong>
+                        It has been made as small as it can usefully be and still does not fit.
+                        Widen the block with the size slider, or shorten the reason — otherwise
+                        what is drawn will be cut off, and a document that has been signed is the
+                        wrong place for a sentence that stops halfway.
+                      </div>
+                    {/if}
+
+                    {#if blockUnsupported.length > 0}
+                      <div class="notice warn">
+                        <strong>Some characters cannot be drawn in the block.</strong>
+                        The face carries Latin and its accents, which is not enough for
+                        <code>{blockUnsupported.join(' ')}</code>. They would come out as empty
+                        boxes, so change the text or turn the block off — the signature itself is
+                        unaffected, and the words still go into the signature as they are.
+                      </div>
+                    {/if}
+                  {/if}
+                {/if}
+              {/if}
             {/if}
 
             <div class="field timestamp-field">
@@ -921,7 +1556,15 @@
                 disabled={!ready || saving}
                 onclick={() => void save()}
               >
-                {saving ? 'Writing…' : wantTimestamp ? 'Save, and timestamp' : 'Save signed PDF'}
+                {saving
+                  ? 'Writing…'
+                  : wantCertificate && wantTimestamp
+                    ? 'Sign, timestamp and save'
+                    : wantCertificate
+                      ? 'Sign with the certificate and save'
+                      : wantTimestamp
+                        ? 'Save, and timestamp'
+                        : 'Save signed PDF'}
               </button>
             </div>
           </div>
@@ -932,12 +1575,35 @@
           here: a signature sitting on a contract looks far more like a signed
           contract than a loose PNG ever does.
         -->
+        {#if wantCertificate && identity}
+          <div class="notice">
+            <strong>What this signature proves, and what it does not.</strong>
+            It proves that whoever held the key in that file signed these exact bytes, and that
+            nothing has changed since. That is an advanced electronic signature, and it is a real
+            claim.
+            <br /><br />
+            It is <strong>not</strong> a qualified electronic signature, and nothing here can make
+            it one: a qualified signature needs the key to live in certified hardware that only you
+            can use, and a key file a browser can read is one that can be copied. This app also
+            does not check whose certificate that is — it signs with the key it is given. Whether
+            {identity.subject} is who they say they are is for the reader's PDF software to judge,
+            against a list of trusted authorities this app does not ship.
+            <br /><br />
+            The picture in the block proves nothing on its own, as below. What makes the document
+            worth something is the signature around it.
+          </div>
+        {/if}
+
         <div class="notice warn">
           <strong>A signature image is not an electronic signature.</strong>
           Putting a picture of your name on a document proves nothing about who put
           it there — anyone who has the image can do the same to any file. Use this for
           letterheads, forms and returning paperwork, not as evidence that you agreed to
           something.
+          {#if !wantCertificate}
+            If you need a document to prove who signed it, that is what signing with a
+            certificate above does.
+          {/if}
           <br /><br />
           <strong>A timestamp does not change that.</strong>
           It establishes one fact and no others: that this file existed at a particular time.
@@ -953,12 +1619,17 @@
         <div class="side-list">
           <div>The text of the document stays text — it is not flattened to an image</div>
           <div>
+            Optionally a real signature, made with your own certificate, covering every byte of
+            the finished file
+          </div>
+          <div>
             An SVG signature goes on as paths, sharp at any size; a PNG goes on as a picture, and
             the app says whether it is big enough for where you put it
           </div>
           <div>Read and written in this browser: no server, no account, no analytics</div>
           <div>A PDF that already carries a digital signature is refused, not broken</div>
           <div>Optionally a timestamp, which sends a 32-byte digest and nothing else</div>
+          <div>Your key file and its password are read here and never leave the device</div>
         </div>
       </aside>
     </div>

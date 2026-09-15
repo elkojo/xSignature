@@ -113,11 +113,12 @@
 
 <footer class="site">
   <div>
-    The name you type, the strokes you draw and the documents you open stay on this device. The
-    only thing this app ever sends is a 32-byte digest, when you ask it for a timestamp, and it
-    says so before it does. xSignature is free and open source under the
+    The name you type, the strokes you draw, the documents you open and any key file you use stay
+    on this device. The only thing this app ever sends is a 32-byte digest, when you ask it for a
+    timestamp, and it says so before it does. xSignature is free and open source under the
     <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">
       AGPL-3.0</a
-    >. It makes pictures, not electronic signatures.
+    >. It makes signature pictures, which prove nothing, and — if you bring a certificate — real
+    signatures, which prove who signed and that nothing changed. It never makes qualified ones.
   </div>
 </footer>

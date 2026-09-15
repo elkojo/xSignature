@@ -39,6 +39,8 @@ import type { Font } from 'opentype.js';
 
 import type { PathCommand } from '../../../signature/path';
 import { textToPath } from '../../../signature/type/text-to-path';
+import { appearanceMatrix } from '../../place/placement';
+import type { Rotation } from '../../place/placement';
 import { hexToRgb } from '../../stamp/stamp';
 import { pathOperators } from '../../stamp/path-ops';
 import { detailLines, layoutBlock, type Box } from './layout';
@@ -67,6 +69,13 @@ export interface BlockOptions {
   readonly fontSize?: number;
   /** Ink for the text. The signature carries its own. */
   readonly textColor?: string;
+  /**
+   * The page's `/Rotate`, so the block reads upright on a page stored turned.
+   *
+   * The block is laid out as the reader sees it — width is width on screen —
+   * and this turns the result to match how the page is stored.
+   */
+  readonly rotation?: Rotation;
 }
 
 /**
@@ -125,6 +134,36 @@ function drawOutlines(
 }
 
 /**
+ * The largest text size at which every line fits the column it is given.
+ *
+ * A form XObject is clipped to its bounding box, so a line too long for the
+ * block does not overflow — it is cut off, mid-word, in a document somebody has
+ * signed. That is the worst available behaviour: the signature is sound, and it
+ * covers a reason that stops halfway through a sentence.
+ *
+ * So the size comes down until the longest line fits, to a floor. Below the
+ * floor it would be too small to read, and the caller is told rather than
+ * handed something illegible — `fits` is false and nothing has been hidden.
+ */
+export function fitTextSize(
+  font: Font,
+  lines: readonly string[],
+  columnWidth: number,
+  preferred: number,
+  minimum = 4,
+): { size: number; fits: boolean } {
+  if (lines.length === 0 || columnWidth <= 0) return { size: preferred, fits: true };
+
+  // Advance width scales linearly with the em size, so the size that fits can
+  // be computed rather than searched for.
+  const widest = Math.max(...lines.map((line) => font.getAdvanceWidth(line, preferred)));
+  if (widest <= columnWidth) return { size: preferred, fits: true };
+
+  const needed = (preferred * columnWidth) / widest;
+  return { size: Math.max(needed, minimum), fits: needed >= minimum };
+}
+
+/**
  * Build the appearance, and give back the reference to put in the widget.
  *
  * Registers whatever images the block needs as resources of the XObject itself,
@@ -133,17 +172,40 @@ function drawOutlines(
  */
 export function buildAppearance(doc: PDFDocument, options: BlockOptions): PDFRef {
   const { width, height, signature, logo, details, font } = options;
-  const fontSize = options.fontSize ?? 7;
+  const preferred = options.fontSize ?? 7;
   const lines = detailLines(details);
 
-  const layout = layoutBlock({
+  // Laid out once to find out how wide the text column is, then again at
+  // whatever size fits it. Cheaper than it looks — the layout is arithmetic —
+  // and it means the block is measured against its own column rather than
+  // against a guess about one.
+  const provisional = layoutBlock({
     width,
     height,
     signature: { width: signature.width, height: signature.height },
     logo: logo ? { width: logo.width, height: logo.height } : undefined,
     lines: lines.length,
-    fontSize,
+    fontSize: preferred,
   });
+
+  const fontSize = fitTextSize(
+    font,
+    lines,
+    provisional.textColumn?.width ?? 0,
+    preferred,
+  ).size;
+
+  const layout =
+    fontSize === preferred
+      ? provisional
+      : layoutBlock({
+          width,
+          height,
+          signature: { width: signature.width, height: signature.height },
+          logo: logo ? { width: logo.width, height: logo.height } : undefined,
+          lines: lines.length,
+          fontSize,
+        });
 
   const operators: PDFOperator[] = [];
   const resources: Record<string, unknown> = {};
@@ -196,7 +258,7 @@ export function buildAppearance(doc: PDFDocument, options: BlockOptions): PDFRef
     Resources: doc.context.obj({
       XObject: doc.context.obj(resources as Parameters<typeof doc.context.obj>[0]),
     }),
-    Matrix: doc.context.obj([1, 0, 0, 1, 0, 0]),
+    Matrix: doc.context.obj([...appearanceMatrix(options.rotation ?? 0)]),
   });
 
   return doc.context.register(stream);

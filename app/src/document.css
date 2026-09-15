@@ -87,6 +87,45 @@
   pointer-events: none;
 }
 
+/*
+ * The block preview.
+ *
+ * Drawn from the same layout function that lays out the real thing, at the
+ * size it is shown, so what is dragged is the shape that lands on the page.
+ * Its own faint border, because a block has an extent a loose signature does
+ * not: knowing where it ends is the whole reason for previewing it.
+ */
+.overlay.block {
+  border-style: solid;
+  border-color: rgba(16, 32, 26, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.overlay.block:hover,
+.overlay.block:focus-visible {
+  border-color: #3d7a63;
+}
+
+.block-ink {
+  position: absolute;
+  pointer-events: none;
+}
+
+.block-ink img,
+.block-ink svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.block-line {
+  position: absolute;
+  color: var(--ink);
+  white-space: nowrap;
+  line-height: 0;
+  pointer-events: none;
+}
+
 .slider {
   width: 100%;
   max-width: 320px;

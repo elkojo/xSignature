@@ -11,7 +11,7 @@ import { makeKeyFiles } from '../read/fixtures/make-keys';
 import type { Identity } from '../read/identity';
 import { readKeyFile } from '../read/read';
 import { applyCertificateSignature } from '../sign/apply';
-import { buildAppearance } from './block';
+import { buildAppearance, fitTextSize } from './block';
 
 let font: Font;
 let identity: Identity;
@@ -156,5 +156,49 @@ describe('a visible signature, end to end', () => {
 
     expect(widget.lookup(PDFName.of('Rect'), PDFArray).toString()).toBe('[ 0 0 0 0 ]');
     expect(widget.get(PDFName.of('AP'))).toBeUndefined();
+  });
+});
+
+describe('fitTextSize', () => {
+  it('leaves the size alone when everything already fits', () => {
+    const fit = fitTextSize(font, ['Signed by: Milan'], 400, 7);
+
+    expect(fit.size).toBe(7);
+    expect(fit.fits).toBe(true);
+  });
+
+  it('shrinks until the longest line fits, rather than letting it be clipped', () => {
+    // A form XObject is clipped to its bounding box, so an overlong line is not
+    // an overflow — it is a sentence cut off mid-word inside a signed document.
+    const lines = ['Souhlasím s obsahem této smlouvy a s jejími přílohami'];
+    const column = 140;
+
+    // Too wide at the preferred size, so it has to come down.
+    expect(font.getAdvanceWidth(lines[0], 7)).toBeGreaterThan(column);
+
+    const fit = fitTextSize(font, lines, column, 7);
+    expect(fit.size).toBeLessThan(7);
+    expect(fit.fits).toBe(true);
+    expect(font.getAdvanceWidth(lines[0], fit.size)).toBeLessThanOrEqual(column + 0.001);
+  });
+
+  it('measures the longest line, not the last one', () => {
+    const lines = ['short', 'a considerably longer line than the first', 'mid'];
+    const fit = fitTextSize(font, lines, 100, 7);
+
+    for (const line of lines) {
+      expect(font.getAdvanceWidth(line, fit.size)).toBeLessThanOrEqual(100.001);
+    }
+  });
+
+  it('says so rather than going below what can be read', () => {
+    const fit = fitTextSize(font, ['x'.repeat(400)], 60, 7, 4);
+
+    expect(fit.fits).toBe(false);
+    expect(fit.size).toBe(4);
+  });
+
+  it('has nothing to do when there are no lines', () => {
+    expect(fitTextSize(font, [], 100, 7)).toEqual({ size: 7, fits: true });
   });
 });

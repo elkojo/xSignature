@@ -61,9 +61,16 @@ export interface ImageStamp {
   readonly height: number;
 }
 
-/** `#rrggbb` to the 0–1 components PDF wants. */
+/**
+ * `#rgb` or `#rrggbb` to the 0–1 components PDF wants.
+ *
+ * Anything else gives black. The writer rejects a component that is not a
+ * number, so an unparseable colour would otherwise throw from somewhere deep
+ * inside it and surface as "this document could not be written" — which is
+ * both wrong and unactionable. Black is a colour; the shape is what matters.
+ */
 export function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const value = hex.replace('#', '');
+  const value = hex.trim().replace(/^#/, '');
   const full =
     value.length === 3
       ? value
@@ -71,6 +78,8 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
           .map((c) => c + c)
           .join('')
       : value;
+
+  if (!/^[0-9a-f]{6}$/i.test(full)) return { r: 0, g: 0, b: 0 };
 
   return {
     r: parseInt(full.slice(0, 2), 16) / 255,

@@ -162,3 +162,37 @@ export function detailLines(details: {
   if (details.date) lines.push(details.date.toISOString().slice(0, 10));
   return lines;
 }
+
+/**
+ * How tall the block needs to be for a given width.
+ *
+ * The reader chooses the width — it is the same slider that sizes a signature —
+ * and the height follows from what has to fit: the signature at whatever the
+ * left column gives it, or the lines of detail, whichever is taller. Deriving
+ * it rather than asking is what keeps the preview and the result the same
+ * shape, and it means a block with three lines is not the same size as one with
+ * none.
+ */
+export function blockHeightFor(input: {
+  width: number;
+  signature: Proportions;
+  lines: number;
+  fontSize?: number;
+  hasLogo?: boolean;
+}): number {
+  const fontSize = input.fontSize ?? 7;
+  const innerWidth = Math.max(0, input.width - PADDING * 2);
+  const hasText = input.lines > 0;
+  const leftWidth = hasText ? innerWidth * LEFT_SHARE - GUTTER / 2 : innerWidth;
+
+  const signatureHeight =
+    input.signature.width > 0 ? (leftWidth * input.signature.height) / input.signature.width : 0;
+  const textHeight = input.lines * fontSize * LINE_RATIO;
+
+  let content = Math.max(signatureHeight, textHeight);
+  // The logo takes a strip under the signature, so the signature gets the
+  // remaining 70% — the block has to be taller by that much to give it back.
+  if (input.hasLogo) content /= 0.7;
+
+  return content + PADDING * 2;
+}

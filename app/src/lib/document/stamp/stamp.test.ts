@@ -37,6 +37,20 @@ describe('hexToRgb', () => {
     expect(hexToRgb('#000000')).toEqual({ r: 0, g: 0, b: 0 });
   });
 
+  it('gives black for a colour it cannot read, rather than NaN', () => {
+    // An SVG from elsewhere may say `fill="none"` and put the colour on the
+    // stroke, or name a colour outright. The writer rejects a component that is
+    // not a number, so an unreadable colour used to surface several layers away
+    // as "this document could not be written" — which is wrong and unactionable.
+    for (const value of ['none', 'black', 'rgb(0,0,0)', '', '#12', '#gggggg']) {
+      expect(hexToRgb(value)).toEqual({ r: 0, g: 0, b: 0 });
+    }
+  });
+
+  it('tolerates surrounding space', () => {
+    expect(hexToRgb('  #ffffff  ')).toEqual({ r: 1, g: 1, b: 1 });
+  });
+
   it('reads a three-digit hex the way CSS does', () => {
     expect(hexToRgb('#f00')).toEqual(hexToRgb('#ff0000'));
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { detailLines, fitCentred, layoutBlock } from './layout';
+import { blockHeightFor, detailLines, fitCentred, layoutBlock } from './layout';
 
 const wide = { width: 200, height: 60 };
 
@@ -134,5 +134,61 @@ describe('detailLines', () => {
 
   it('gives back nothing at all when nothing was filled in', () => {
     expect(detailLines({})).toEqual([]);
+  });
+});
+
+describe('blockHeightFor', () => {
+  const signature = { width: 4, height: 1 };
+
+  it('grows with the number of lines', () => {
+    const few = blockHeightFor({ width: 200, signature, lines: 2 });
+    const many = blockHeightFor({ width: 200, signature, lines: 5 });
+
+    expect(many).toBeGreaterThan(few);
+  });
+
+  it('is taller with no text at all, because the signature then spans it', () => {
+    // Not a special case to work around: with nothing beside it the signature
+    // takes the whole width, so a wide signature makes a taller block. The
+    // preview shows the same thing, which is the point.
+    const none = blockHeightFor({ width: 200, signature, lines: 0 });
+    const some = blockHeightFor({ width: 200, signature, lines: 2 });
+
+    expect(none).toBeGreaterThan(some);
+  });
+
+  it('leaves room for a logo when there is one', () => {
+    const without = blockHeightFor({ width: 200, signature, lines: 3 });
+    const with_ = blockHeightFor({ width: 200, signature, lines: 3, hasLogo: true });
+
+    expect(with_).toBeGreaterThan(without);
+  });
+
+  it('describes a block the layout then actually fits into', () => {
+    // The preview and the result are the same shape only if the height this
+    // returns is the height the layout wants. Everything it places has to land
+    // inside a block of exactly that size.
+    for (const lines of [0, 1, 3, 5]) {
+      for (const hasLogo of [false, true]) {
+        const width = 220;
+        const height = blockHeightFor({ width, signature, lines, hasLogo });
+        const laid = layoutBlock({
+          width,
+          height,
+          signature,
+          logo: hasLogo ? { width: 2, height: 1 } : undefined,
+          lines,
+        });
+
+        expect(laid.signature.y + laid.signature.height).toBeLessThanOrEqual(height + 0.0001);
+        if (laid.logo) {
+          expect(laid.logo.y + laid.logo.height).toBeLessThanOrEqual(height + 0.0001);
+        }
+        for (const baseline of laid.baselines) {
+          expect(baseline.y).toBeLessThanOrEqual(height + 0.0001);
+          expect(baseline.y).toBeGreaterThanOrEqual(0);
+        }
+      }
+    }
   });
 });

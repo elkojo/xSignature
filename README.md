@@ -12,8 +12,8 @@ Three screens:
 - **Signature image** — make a signature and save it as a PNG or an SVG.
 - **Sign a document** — open a PDF, bring in a signature by pasting, dropping or
   choosing it, place it on a page and save the result. Plain text and Markdown
-  are laid out as a PDF first, here on the device. Optionally attach a
-  timestamp.
+  are laid out as a PDF first, here on the device. Optionally sign it with your
+  own certificate, and optionally attach a timestamp.
 - **Check a PDF** — read any PDF and report whether it carries a timestamp,
   whether the document still matches it, and whether anything was appended
   afterwards.
@@ -25,18 +25,48 @@ default, and described under [Privacy](#privacy). It shares its design language
 and its privacy posture with [xNotary](https://xnotary.digital), and nothing
 else — no shared account, no shared storage, no traffic between them.
 
-## What this is not
+## Two different claims
 
-xSignature produces a **picture of a signature**. It has no legal weight, no
-audit trail and no identity binding, and it is not an electronic signature in
-any regulatory sense. It is for letterheads, email footers, form fields and
-branding. If you need to prove who signed a document, you need a qualified
-electronic signature, which this is not.
+xSignature makes two things, and the difference between them is the most
+important thing on this page.
 
-The timestamp does not change that. It establishes one fact and no others: that
-a file existed at a particular time, according to an authority that has never
-heard of whoever made it. It says nothing about who wrote the document, who put
-a signature on it, or whether anyone agreed to anything.
+A **picture of a signature** — typed or drawn, exported as a PNG or an SVG, or
+placed on a PDF. It has no legal weight, no audit trail and no identity
+binding. It proves nothing about who made it: anyone who has the file can put
+it on any document. It is for letterheads, email footers, form fields and
+branding.
+
+A **certificate signature** — a PAdES signature made with a private key you
+supply, covering the exact bytes of the finished PDF. This one proves
+something: that whoever held that key signed these bytes, and that they have
+not changed since. It is an *advanced* electronic signature.
+
+It is **not** a qualified one and cannot become one here. A qualified signature
+needs the key to live in certified hardware that only you can use; a key file a
+browser can read is one that can be copied. The app also does not check whose
+certificate it is — it signs with the key it is given, and says so. Judging
+that is your PDF reader's job, against a trust list this app does not ship.
+
+The timestamp is a third, much smaller claim. It establishes one fact and no
+others: that a file existed at a particular time, according to an authority
+that has never heard of whoever made it.
+
+## Key files
+
+`.p12`, `.pfx` and `.pem`. The password opens the file and is then forgotten;
+the private key is imported as a non-extractable key, so once it is in, not
+even this app can read it back out.
+
+Two routes open a `.p12`, chosen from the file's own bytes before a password is
+asked for. A current export is PBES2 and AES, which the bundled PKI library
+reads. A certificate authority's export usually is not: PostSignum wraps its
+key in 3DES and its certificates in RC2-40, and WebCrypto implements neither
+cipher — so for those files, and only those, node-forge is fetched to open the
+container. It decrypts and nothing more; every signature is made by WebCrypto.
+
+Java keystores are refused with the `keytool` command that converts them. The
+format is Sun's own and its keys are wrapped in a cipher with no standard
+behind it.
 
 ## How it works
 
@@ -64,6 +94,16 @@ on a page that is stored rotated or cropped differently from how it is
 displayed. An image gets one extra matrix in front, reconciling its y-up unit
 square with the y-down space the ink is measured in, so a picture and outlines
 of the same proportions land on exactly the same spot.
+
+A certificate signature is a detached CMS SignedData over the same byte range,
+in a `/Sig` dictionary of subtype `ETSI.CAdES.detached`. It carries the
+signing-certificate-v2 attribute, which binds it to one certificate by its hash
+rather than to whichever certificate in the file happens to fit. A visible
+signature draws its block — the signature, a logo if you add one, and whichever
+of the name, reason and location you filled in — into the signature's own
+appearance stream, so what you see is part of what is signed rather than
+content that happens to sit underneath it. That block is drawn as outlines in a
+bundled face, because PDF's built-in fonts cannot spell a Czech name.
 
 A timestamp is a PAdES document timestamp — `/DocTimeStamp`, `/ETSI.RFC3161` —
 written as an incremental update, so the bytes that arrived are left exactly as
@@ -107,8 +147,8 @@ manual checks instead. Run `npm run dev`, then open
 
 ## Privacy
 
-The name you type, the strokes you draw and the documents you open never leave
-the device. There is no backend, no API, no upload, no analytics and no CDN —
+The name you type, the strokes you draw, the documents you open and any key
+file you use never leave the device. There is no backend, no API, no upload, no analytics and no CDN —
 fonts are bundled into the build. Nothing is persisted except your last-used
 settings (face, colour, size) in `localStorage`.
 

@@ -736,15 +736,20 @@
 
         <!--
           Read this wording as load-bearing: it is what keeps a decorative image
-          from being mistaken for a qualified electronic signature. It names the
-          limit and stops there — it sends nobody anywhere, because this app
-          reaches nothing outside itself.
+          from being mistaken for an electronic signature. It names the limit and
+          stops there.
+          
+          The last sentence points at this app's own signing screen, which is a
+          different thing from selling somebody a remedy elsewhere: the limit is
+          still stated in full first, and what it points at is one screen away
+          rather than one product away.
         -->
         <div class="notice warn">
           <strong>This is an image, not an electronic signature.</strong>
           It proves nothing about who made it — anyone who has the file can put it on any document.
           Use it for letterheads, email footers and form fields, not as evidence that you signed
-          something.
+          something. If you need a document that proves who signed it, that takes a certificate and
+          a private key, which is what <em>Sign a document</em> can do with one you already have.
         </div>
       </div>
 

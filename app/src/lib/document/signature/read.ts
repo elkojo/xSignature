@@ -119,8 +119,30 @@ export function readSignatureSvg(markup: string): VectorSignature {
     commands,
     width: box.width,
     height: box.height,
-    color: paths[0].getAttribute('fill') ?? '#000000',
+    color: inkColourOf(paths[0]),
   };
+}
+
+/**
+ * The colour to draw an SVG's outlines in.
+ *
+ * This app's own exports carry a hex `fill`, which is the easy case. An SVG
+ * from anywhere else — and the interface invites one — may instead say
+ * `fill="none"` and put the colour on `stroke`, or name a colour, or give a
+ * form of hex with three digits.
+ *
+ * Only `#rgb` and `#rrggbb` can be turned into the numbers a PDF wants without
+ * a colour table this app has no reason to carry, so anything else falls back
+ * to the ink colour the rest of the app uses. Falling back is right rather than
+ * refusing: the shape of a signature is what was asked for, and a signature in
+ * the wrong black is a far smaller wrong than no signature at all.
+ */
+function inkColourOf(path: Element): string {
+  for (const attribute of ['fill', 'stroke']) {
+    const value = path.getAttribute(attribute)?.trim() ?? '';
+    if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) return value;
+  }
+  return '#10201a';
 }
 
 /** The ink's own box: the viewBox if there is one, else the declared size. */

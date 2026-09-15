@@ -154,3 +154,26 @@ describe('the magic-byte checks', () => {
     expect(looksLikeJpeg(png(1, 1, 6))).toBe(false);
   });
 });
+
+describe('readSignatureSvg, choosing a colour to draw in', () => {
+  const svg = (attributes: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><path ${attributes} d="M0 0 L10 10 Z"/></svg>`;
+
+  it('takes the fill when it is hex', () => {
+    expect(readSignatureSvg(svg('fill="#123456"')).color).toBe('#123456');
+    expect(readSignatureSvg(svg('fill="#abc"')).color).toBe('#abc');
+  });
+
+  it('falls back to the stroke when the fill is none', () => {
+    // An SVG from anywhere but this app's own export commonly draws a signature
+    // as a stroked path with no fill at all. Reading `none` as a colour used to
+    // produce NaN components and fail the whole save.
+    expect(readSignatureSvg(svg('fill="none" stroke="#10201a"')).color).toBe('#10201a');
+  });
+
+  it('uses the app ink when neither says anything it can use', () => {
+    expect(readSignatureSvg(svg('fill="none" stroke="currentColor"')).color).toBe('#10201a');
+    expect(readSignatureSvg(svg('fill="black"')).color).toBe('#10201a');
+    expect(readSignatureSvg(svg('')).color).toBe('#10201a');
+  });
+});

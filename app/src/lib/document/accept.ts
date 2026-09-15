@@ -36,7 +36,7 @@ export interface Accepted {
  * Formats this app sets for itself, with nothing to download.
  *
  * Plain text has no structure to preserve, and Markdown's is small enough to
- * set with the fonts every PDF reader already has. Both are laid out here in a
+ * set with faces bundled with the app. Both are laid out here in a
  * moment, on this device.
  */
 const PLAIN: ReadonlyArray<readonly [ext: string, format: string]> = [

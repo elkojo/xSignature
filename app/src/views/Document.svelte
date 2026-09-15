@@ -945,9 +945,11 @@
             {:else if verdict.route === 'text'}
               <div class="notice ok">
                 <strong>Laid out as a PDF.</strong>
-                Set here with the fonts every PDF reader already has, so nothing was downloaded and
-                nothing was sent anywhere. It is a plain setting of the document rather than
-                typesetting — check it reads the way you want before signing it.
+                Set here, on this device, in faces that came with the app — nothing was sent
+                anywhere. They are embedded in the PDF, so it reads the same wherever it is
+                opened, including the accents PDF's own built-in fonts cannot spell. It is a
+                plain setting of the document rather than typesetting — check it reads the way
+                you want before signing it.
               </div>
             {:else if verdict.route === 'reject'}
               <div class="notice bad"><strong>Cannot read this one.</strong> {verdict.reason}</div>

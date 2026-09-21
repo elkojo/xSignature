@@ -142,3 +142,104 @@ describe('claimsOf', () => {
     expect(claimsOf(certificateWith([broken])).qualified).toBe(false);
   });
 });
+
+/** `AuthorityInfoAccessSyntax ::= SEQUENCE OF { accessMethod, accessLocation }`. */
+const authorityInfoAccess = (...access: Array<[string, string, number?]>) =>
+  extension(
+    '1.3.6.1.5.5.7.1.1',
+    new asn1js.Sequence({
+      value: access.map(
+        ([method, location, tag = 6]) =>
+          new asn1js.Sequence({
+            value: [
+              new asn1js.ObjectIdentifier({ value: method }),
+              new asn1js.Primitive({
+                idBlock: { tagClass: 3, tagNumber: tag },
+                valueHex: new TextEncoder().encode(location).buffer as ArrayBuffer,
+              }),
+            ],
+          }),
+      ),
+    }),
+  );
+
+const CA_ISSUERS = '1.3.6.1.5.5.7.48.2';
+const OCSP = '1.3.6.1.5.5.7.48.1';
+
+describe('where the issuing certificate can be fetched', () => {
+  it('reads the caIssuers address', () => {
+    const claims = claimsOf(
+      certificateWith([authorityInfoAccess([CA_ISSUERS, 'http://crt.example.cz/ca.crt'])]),
+    );
+    expect(claims.issuerUrl).toBe('http://crt.example.cz/ca.crt');
+  });
+
+  it('reads it out of what a real authority emits', () => {
+    // The Authority Information Access extension of a PostSignum Qualified CA 4
+    // certificate, byte for byte. Hand-built structures agree with the parser
+    // by construction; this one was issued by somebody else, and puts the OCSP
+    // responder in the same extension.
+    const real =
+      '306f303b06082b06010505073002862f687474703a2f2f6372742e706f73747369676e756d2e637a2f' +
+      '6372742f70737175616c69666965646361342e637274303006082b0601050507300186246874747' +
+      '03a2f2f6f6373702e706f73747369676e756d2e637a2f4f4353502f514341342f';
+    const bytes = Uint8Array.from(real.match(/../g)!.map((b) => Number.parseInt(b, 16)));
+
+    const claims = claimsOf(
+      certificateWith([
+        new Extension({
+          extnID: '1.3.6.1.5.5.7.1.1',
+          critical: false,
+          extnValue: bytes.slice().buffer as ArrayBuffer,
+        }),
+      ]),
+    );
+
+    expect(claims.issuerUrl).toBe('http://crt.postsignum.cz/crt/psqualifiedca4.crt');
+  });
+
+  it('is not fooled by the OCSP responder beside it', () => {
+    // Revocation is a service this app does not reach for, and its address is
+    // not where a certificate is fetched from. Order must not decide it.
+    const claims = claimsOf(
+      certificateWith([
+        authorityInfoAccess(
+          [OCSP, 'http://ocsp.example.cz/'],
+          [CA_ISSUERS, 'http://crt.example.cz/ca.crt'],
+        ),
+      ]),
+    );
+    expect(claims.issuerUrl).toBe('http://crt.example.cz/ca.crt');
+  });
+
+  it('reports nothing when there is only an OCSP responder', () => {
+    const claims = claimsOf(certificateWith([authorityInfoAccess([OCSP, 'http://ocsp.example.cz/'])]));
+    expect(claims.issuerUrl).toBeNull();
+  });
+
+  it('reports nothing when the certificate says nothing', () => {
+    expect(claimsOf(certificateWith([])).issuerUrl).toBeNull();
+  });
+
+  it('ignores a location that is not an address a reader can open', () => {
+    // GeneralName is a CHOICE and only the URI arm is any use here: a directory
+    // name or an rfc822 address is not somewhere to go and get a file.
+    const directoryName = claimsOf(
+      certificateWith([authorityInfoAccess([CA_ISSUERS, 'CN=Some CA', 4])]),
+    );
+    expect(directoryName.issuerUrl).toBeNull();
+  });
+
+  it('refuses a scheme that is not http', () => {
+    // A certificate is not a place to take a javascript: or data: URL from,
+    // whatever it claims, and this value ends up rendered as a link.
+    for (const url of ['javascript:alert(1)', 'data:text/html,x', 'ldap://example.cz/cn']) {
+      expect(claimsOf(certificateWith([authorityInfoAccess([CA_ISSUERS, url])])).issuerUrl).toBeNull();
+    }
+  });
+
+  it('survives an extension that is not what it claims to be', () => {
+    const rubbish = extension('1.3.6.1.5.5.7.1.1', new asn1js.Integer({ value: 7 }));
+    expect(claimsOf(certificateWith([rubbish])).issuerUrl).toBeNull();
+  });
+});

@@ -32,7 +32,7 @@
  * interesting failure — a document altered after signing — is caught by (1)
  * regardless.
  */
-import { Certificate, ContentInfo, SignedData, TSTInfo } from 'pkijs';
+import { AttributeTypeAndValue, Certificate, ContentInfo, SignedData, TSTInfo } from 'pkijs';
 
 import { checkLinks, orderChain, type ChainLink } from '../certificate/read/chain';
 import { digestedBytes } from '../timestamp/byte-range';
@@ -62,6 +62,13 @@ export interface CheckedSignature {
   readonly time: Date | null;
   /** The signer, exactly as the token names it. Not vouched for. */
   readonly signedBy: string | null;
+  /**
+   * Who the signer's certificate says issued it. Not vouched for either.
+   *
+   * Present even when the signature encloses no issuer certificate, which is
+   * when it is worth the most: it names the certificate a reader has to find.
+   */
+  readonly issuedBy: string | null;
   readonly policy: string | null;
   /** True when this is a document timestamp rather than a signature of identity. */
   readonly isTimestamp: boolean;
@@ -73,6 +80,16 @@ export interface CheckedSignature {
    * — so nothing may be added to such a document, counter-signature included.
    */
   readonly permits: 1 | 2 | 3 | null;
+  /**
+   * The signer's own certificate, when the token carried a readable one.
+   *
+   * A parsed object rather than the plain readings around it, because a chain
+   * supplied afterwards has to be checked *against* something: a signature that
+   * encloses no issuer certificates can still be traced once the reader fetches
+   * them, and the arithmetic needs the leaf. Nothing here is vouched for by
+   * exposing it.
+   */
+  readonly certificate: Certificate | null;
   /** What the signer typed into the signature, if anything. Not checked. */
   readonly reason: string | null;
   readonly location: string | null;
@@ -146,6 +163,8 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
       verdict: 'unreadable',
       time: null,
       signedBy: null,
+      issuedBy: null,
+      certificate: null,
       policy: null,
       certificateCount: 0,
       claims: null,
@@ -174,6 +193,8 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
         verdict: 'unreadable',
         time: null,
         signedBy: subjectOf(signed),
+        issuedBy: issuerOf(signed),
+        certificate: signerCertificateOf(signed),
         policy: null,
         certificateCount: signed.certificates?.length ?? 0,
         claims: claimsOfSigner(signed),
@@ -190,6 +211,8 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
     ...shared,
     time,
     signedBy: subjectOf(signed),
+    issuedBy: issuerOf(signed),
+    certificate: signerCertificateOf(signed),
     policy,
     certificateCount: signed.certificates?.length ?? 0,
     claims: claimsOfSigner(signed),
@@ -296,8 +319,31 @@ function claimsOfSigner(signed: SignedData): CertificateClaims | null {
 function subjectOf(signed: SignedData): string | null {
   const certificate = signed.certificates?.[0];
   if (!certificate || !('subject' in certificate)) return null;
+  return commonNameOf(certificate.subject.typesAndValues);
+}
 
-  const parts = certificate.subject.typesAndValues;
+/**
+ * Who issued the signer's certificate, as the certificate itself names them.
+ *
+ * Not the same question as what the signature *carries*: a signature may name
+ * its issuer and enclose nothing. That is the common case with a leaf-only key
+ * file, and it is exactly when a reader most needs to be told which certificate
+ * is missing rather than being left to work it out.
+ */
+function issuerOf(signed: SignedData): string | null {
+  const certificate = signed.certificates?.[0];
+  if (!certificate || !('issuer' in certificate)) return null;
+  return commonNameOf(certificate.issuer.typesAndValues);
+}
+
+/** The signer's certificate: the first one, by CMS convention. */
+function signerCertificateOf(signed: SignedData): Certificate | null {
+  const first = signed.certificates?.[0];
+  return first && 'subject' in first ? first : null;
+}
+
+/** The common name of a distinguished name, or its last part if it has none. */
+function commonNameOf(parts: AttributeTypeAndValue[]): string | null {
   const commonName = parts.find((part) => part.type === '2.5.4.3');
   const chosen = commonName ?? parts[parts.length - 1];
   return (chosen?.value.valueBlock.value as string) ?? null;

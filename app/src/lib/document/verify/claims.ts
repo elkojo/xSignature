@@ -39,6 +39,9 @@ const QC_TYPES: Record<string, Purpose> = {
 
 const QC_STATEMENTS_EXTENSION = '1.3.6.1.5.5.7.1.3';
 const KEY_USAGE_EXTENSION = '2.5.29.15';
+const AUTHORITY_INFO_ACCESS_EXTENSION = '1.3.6.1.5.5.7.1.1';
+/** `id-ad-caIssuers`: where the certificate above this one can be fetched. */
+const CA_ISSUERS = '1.3.6.1.5.5.7.48.2';
 
 /** What the certificate is for, when it says. */
 export type Purpose =
@@ -64,6 +67,20 @@ export interface CertificateClaims {
   readonly retentionYears: number | null;
   /** A transaction value limit, when one is declared. */
   readonly limit: { readonly value: number; readonly currency: string } | null;
+  /**
+   * Where the issuing certificate can be fetched, when the certificate says.
+   *
+   * The `caIssuers` address out of Authority Information Access. It matters for
+   * a signature that carries only the signer's own certificate: the chain is
+   * not missing so much as not enclosed, and this is the address a reader goes
+   * to for the rest of it. Naming it turns "a reader may not be able to check
+   * this" into something the reader can act on.
+   *
+   * **Read, never fetched.** This app makes one network request and it is the
+   * timestamp. Resolving this address would be a second one. It is shown so
+   * that a person can go and get the file, not so that the app can.
+   */
+  readonly issuerUrl: string | null;
   /** Whether the key may be used to sign at all, per the key usage extension. */
   readonly keyUsage: {
     readonly digitalSignature: boolean;
@@ -84,6 +101,7 @@ export function claimsOf(certificate: Certificate): CertificateClaims {
     purpose: purposeFrom(statements.get(QC_TYPE)),
     retentionYears: integerFrom(statements.get(QC_RETENTION)),
     limit: limitFrom(statements.get(QC_LIMIT_VALUE)),
+    issuerUrl: caIssuersUrlOf(certificate),
     keyUsage: keyUsageOf(certificate),
   };
 }
@@ -169,6 +187,58 @@ function limitFrom(info: asn1js.AsnType | undefined): CertificateClaims['limit']
  * falses — "this certificate forbids signing" and "this certificate says
  * nothing about signing" are different, and only one is worth warning about.
  */
+/**
+ * The `caIssuers` address from Authority Information Access, if there is one.
+ *
+ * `AuthorityInfoAccessSyntax ::= SEQUENCE OF AccessDescription`, and an
+ * `AccessDescription ::= SEQUENCE { accessMethod OID, accessLocation GeneralName }`.
+ * Only `caIssuers` is wanted; the same extension usually carries an OCSP
+ * responder beside it, which is a revocation service this app deliberately does
+ * not reach for.
+ *
+ * The location is taken only when it is a `uniformResourceIdentifier` — context
+ * tag 6 of GeneralName — because a directory name or an email address is not
+ * something a reader can be told to open. Parsed by hand, like the QC
+ * statements above, so that nothing here depends on how a library chooses to
+ * model an extension it may not have parsed at all.
+ */
+function caIssuersUrlOf(certificate: Certificate): string | null {
+  const extension = certificate.extensions?.find(
+    (e) => e.extnID === AUTHORITY_INFO_ACCESS_EXTENSION,
+  );
+  if (!extension) return null;
+
+  try {
+    const parsed = asn1js.fromBER(
+      extension.extnValue.valueBlock.valueHexView.slice().buffer as ArrayBuffer,
+    );
+    const descriptions = (parsed.result as asn1js.Sequence).valueBlock.value ?? [];
+
+    for (const description of descriptions) {
+      const parts = (description as asn1js.Sequence).valueBlock?.value ?? [];
+      const method = parts[0];
+      if (!(method instanceof asn1js.ObjectIdentifier)) continue;
+      if (method.valueBlock.toString() !== CA_ISSUERS) continue;
+
+      // GeneralName is a CHOICE, so the tag says which arm: context tag 6 is
+      // the URI, and it is an IA5String, so it arrives primitive.
+      const location = parts[1];
+      if (!(location instanceof asn1js.Primitive)) continue;
+      if (location.idBlock.tagClass !== 3 || location.idBlock.tagNumber !== 6) continue;
+
+      const url = new TextDecoder().decode(location.valueBlock.valueHexView);
+      // Only addresses a reader can actually open, and only ones this app would
+      // be willing to show: a `javascript:` or `data:` URL in a certificate is
+      // not a place to fetch a certificate from.
+      if (/^https?:\/\//i.test(url)) return url;
+    }
+  } catch {
+    // A malformed extension is not a claim. Reporting nothing is right.
+  }
+
+  return null;
+}
+
 function keyUsageOf(certificate: Certificate): CertificateClaims['keyUsage'] {
   const extension = certificate.extensions?.find((e) => e.extnID === KEY_USAGE_EXTENSION);
   if (!extension) return { digitalSignature: false, nonRepudiation: false, stated: false };

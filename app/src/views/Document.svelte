@@ -47,6 +47,7 @@
   import { PDFDocument } from '@cantoo/pdf-lib';
   import { checkLinks, orderChain, readCertificates, type ChainLink } from '../lib/document/certificate/read/chain';
   import { checkSignatures, type CheckedSignature } from '../lib/document/verify/verify';
+  import { claimsOf } from '../lib/document/verify/claims';
   import {
     detectKeyFile,
     readKeyFile,
@@ -705,6 +706,18 @@
   let blockUnsupported = $derived(
     blockFont ? unsupportedCharacters(blockFont, blockLines.join(' ')) : [],
   );
+
+  /**
+   * What the chosen certificate declares about itself.
+   *
+   * Read out of the certificate's own QCStatements, not decided here — the same
+   * parsing the Check screen has always shown about somebody else's signature,
+   * pointed at the one about to be made. It settles at signing time the
+   * question the limits note below can otherwise only assert: whether this is
+   * an advanced signature, or an advanced signature made with a qualified
+   * certificate, which is a different and better thing.
+   */
+  let signerClaims = $derived(identity ? claimsOf(identity.certificate) : null);
 
   /** True when what gets placed is the block rather than the signature alone. */
   let placingBlock = $derived(wantCertificate && visibleBlock && identity !== null);
@@ -1597,6 +1610,58 @@
                     </div>
                   {/if}
 
+                  {#if signerClaims}
+                    <!--
+                      The certificate's own statements, kept carefully apart
+                      from anything this app decides. "This certificate declares
+                      itself qualified" is a fact about the file; "this
+                      signature is qualified" is a judgement, and not one this
+                      app is entitled to. Said here rather than only on the
+                      Check screen, so the signer learns what they are about to
+                      make before they make it instead of from somebody else's
+                      validator afterwards.
+                    -->
+                    <div class="notice">
+                      <strong>What this certificate says about itself.</strong>
+                      {#if signerClaims.qualified}
+                        It declares that it is a <em>qualified certificate</em> under eIDAS{signerClaims.purpose ===
+                        'signature'
+                          ? ', issued to a person for signing'
+                          : signerClaims.purpose === 'seal'
+                            ? ', issued to an organisation for sealing'
+                            : ''}, and it does <strong>not</strong> declare that its private key is
+                        held on a qualified signature creation device — which it could not, being a
+                        file. What you are about to make is therefore an advanced signature
+                        supported by a qualified certificate. That is a real standing, and a better
+                        one than an advanced signature alone; it is still not a qualified
+                        electronic signature.
+                      {:else}
+                        It makes no claim to being a qualified certificate under eIDAS.
+                        {#if signerClaims.purpose === 'website'}
+                          It declares itself a website certificate, which is not meant for signing
+                          documents at all.
+                        {/if}
+                        What you are about to make is an advanced electronic signature.
+                      {/if}
+                      {#if signerClaims.limit}
+                        It declares a transaction limit of {signerClaims.limit.value.toLocaleString()}
+                        {signerClaims.limit.currency}.
+                      {/if}
+                      These are the authority's statements, read out of the certificate. Nothing
+                      here checks whether they are true.
+                    </div>
+
+                    {#if signerClaims.keyUsage.stated && !signerClaims.keyUsage.digitalSignature && !signerClaims.keyUsage.nonRepudiation}
+                      <div class="notice warn">
+                        <strong>This certificate was not issued for signing.</strong>
+                        Its key usage permits neither digital signature nor non-repudiation, so
+                        whatever it was meant for, it was not this. The signature would still be
+                        mathematically sound; a reader that enforces key usage will reject it
+                        anyway.
+                      </div>
+                    {/if}
+                  {/if}
+
                   {#if identity.chain.length > 0}
                     <div class="notice ok">
                       It carries {identity.chain.length} issuer certificate{identity.chain
@@ -2015,6 +2080,15 @@
             does not check whose certificate that is — it signs with the key it is given. Whether
             {identity.subject} is who they say they are is for the reader's PDF software to judge,
             against a list of trusted authorities this app does not ship.
+            <br /><br />
+            Nor does it carry <strong>revocation data</strong>. Whether {identity.issuer} has since
+            withdrawn that certificate is a question a reader answers by asking them over the
+            network, at the moment the file is opened — so a reader that is offline cannot settle
+            it, and after {identity.validTo.toISOString().slice(0, 10)}, when the certificate
+            expires, it may not be answerable at all. Acrobat calls a signature in that state "not
+            LTV enabled". Putting the answer inside the file would mean a second request to a
+            revocation service, and this app makes one or none. What does not decay is the
+            arithmetic: the signature still proves these bytes were signed by that key.
             <br /><br />
             The picture in the block proves nothing on its own, as below. What makes the document
             worth something is the signature around it.

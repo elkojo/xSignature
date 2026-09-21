@@ -1924,7 +1924,10 @@
             the app says whether it is big enough for where you put it
           </div>
           <div>Read and written in this browser: no server, no account, no analytics</div>
-          <div>A PDF that already carries a digital signature is refused, not broken</div>
+          <div>
+            A PDF that is already signed can be signed again — yours is appended, leaving every
+            byte theirs covers untouched, so both hold
+          </div>
           <div>Optionally a timestamp, which sends a 32-byte digest and nothing else</div>
           <div>Your key file and its password are read here and never leave the device</div>
         </div>

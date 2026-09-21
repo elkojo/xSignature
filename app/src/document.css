@@ -249,6 +249,22 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * An address the reader may go and open.
+ *
+ * Set like the digest beside it — monospace, wrapping anywhere — because a
+ * distribution URL is a string to be read exactly rather than prose. Underlined
+ * on purpose: the app never follows it, so the affordance has to read
+ * unmistakably as the reader's own to take.
+ */
+.outgoing-list a {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .authority-list {
   display: grid;
   gap: 8px;

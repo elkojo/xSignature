@@ -11,6 +11,12 @@
    * cannot say the authority deserves to be believed, and it does not imply it.
    */
   import { checkSignatures, type CheckedSignature } from '../lib/document/verify/verify';
+  import {
+    checkLinks,
+    orderChain,
+    readCertificates,
+    type ChainLink,
+  } from '../lib/document/certificate/read/chain';
 
   let fileName = $state('');
   let fileSize = $state(0);
@@ -50,7 +56,65 @@
     checked = null;
     error = '';
     fileName = '';
+    supplied = {};
     if (fileInput) fileInput.value = '';
+  }
+
+  /**
+   * Issuer certificates the reader went and fetched, per signature.
+   *
+   * A signature that encloses only the signer's own certificate is not a dead
+   * end — the certificate names its issuer and usually says where that one is
+   * published, and a reader who follows that address has the missing piece. It
+   * cannot be followed from here: those addresses are plain http, which a page
+   * served over https may not fetch, and they answer no CORS preflight either.
+   * Both are the browser's rules, not this app's policy, and no opt-in lifts
+   * them.
+   *
+   * So the reader fetches it and drops it in, and the arithmetic happens here,
+   * offline, exactly as it does on the signing screen. Keyed by signature
+   * because a document may carry several, each wanting a different issuer.
+   */
+  let supplied = $state<Record<number, { name: string; links: ChainLink[]; error: string }>>({});
+
+  async function takeIssuers(index: number, result: CheckedSignature, file: File | undefined) {
+    if (!file) return;
+
+    const leaf = result.certificate;
+    if (!leaf) {
+      supplied[index] = {
+        name: file.name,
+        links: [],
+        error: 'This signature carries no readable certificate to continue from.',
+      };
+      return;
+    }
+
+    const found = readCertificates(new Uint8Array(await file.arrayBuffer()));
+    if (found.length === 0) {
+      supplied[index] = {
+        name: file.name,
+        links: [],
+        error:
+          'No certificate could be read from that file. The .crt an authority publishes, or a ' +
+          '.pem bundle, will work.',
+      };
+      return;
+    }
+
+    const ordered = orderChain(leaf, found);
+    if (ordered.length === 0) {
+      supplied[index] = {
+        name: file.name,
+        links: [],
+        error:
+          'None of the certificates in that file signed this one, so they do not continue this ' +
+          'chain. It may be for a different authority.',
+      };
+      return;
+    }
+
+    supplied[index] = { name: file.name, links: await checkLinks(leaf, ordered), error: '' };
   }
 
   /** UTC, spelled out. A timestamp in local time invites reading it as local. */
@@ -259,11 +323,89 @@
               {:else}
                 <div class="notice warn">
                   <strong>This signature carries no issuer certificates.</strong>
-                  Only the signer's own. There is nothing here to trace it back through, so unless
-                  your PDF reader already holds {result.signedBy ?? 'that authority'}'s issuer, it
-                  will show a name it cannot check. That is a fault in how the document was signed,
-                  not in the signature — the bytes are still intact.
+                  Only the signer's own, so the chain is not enclosed and a reader has to find the
+                  rest of it. The certificate names who issued it:
+                  <strong>{result.issuedBy ?? 'an authority it does not name'}</strong>. A reader
+                  that already holds that certificate — most do, for a well-known authority —
+                  builds the chain and checks the signature normally.
+                  {#if result.claims?.issuerUrl}
+                    The certificate says where that one is published, in Authority Information
+                    Access:
+                    <span class="outgoing-list">
+                      <span>
+                        <strong>Published at:</strong>
+                        <!--
+                          A link, not a fetch. Following it is the reader
+                          navigating their own browser; the app makes no request
+                          either way, and could not if it wanted to — these
+                          addresses are plain http, which a page served over
+                          https may not load, and they answer no CORS preflight.
+                        -->
+                        <a href={result.claims.issuerUrl} target="_blank" rel="noopener noreferrer">
+                          {result.claims.issuerUrl}
+                        </a>
+                      </span>
+                    </span>
+                    A reader that is online usually fetches it from there by itself, which is why
+                    this often validates elsewhere with no complaint at all. This app does not:
+                    opening that address is yours to do, and you can drop the file in below.
+                  {:else}
+                    The certificate gives no address to fetch it from, so a reader that does not
+                    already hold it has nowhere to look but its own store.
+                  {/if}
+                  <br /><br />
+                  None of this touches the signature. The bytes are intact and the arithmetic
+                  holds; what is missing is enclosed evidence, which is a choice made when the
+                  document was signed. Signing here, the certificate step embeds these, and a key
+                  file re-exported with its full certification path carries them without any of
+                  this.
                 </div>
+
+                <!--
+                  The same upload the signing screen offers, on the screen where
+                  somebody is reading a document rather than making one. It
+                  answers the question the notice above raises and otherwise
+                  leaves hanging: fine, so is this chain sound or not?
+                -->
+                <div class="field">
+                  <span class="field-label">Continue the chain yourself</span>
+                  <p class="field-note">
+                    Fetch the certificate above and drop it in. It is read in this browser and
+                    checked against the signer's, offline, like everything else here — nothing is
+                    sent and nothing is written back to the document.
+                  </p>
+                  <input
+                    class="input"
+                    type="file"
+                    accept=".pem,.crt,.cer,.der,.p7b,.p7c,application/x-x509-ca-cert,application/x-pkcs7-certificates"
+                    onchange={(event) =>
+                      void takeIssuers(index, result, event.currentTarget.files?.[0] ?? undefined)}
+                  />
+                </div>
+
+                {#if supplied[index]?.error}
+                  <div class="notice bad">{supplied[index].error}</div>
+                {:else if supplied[index]?.links.length}
+                  <div class="notice ok">
+                    <strong>{supplied[index].name} continues this chain.</strong>
+                    <span class="outgoing-list">
+                      {#each supplied[index].links as link}
+                        <span>
+                          {link.holds ? '✓' : '✗'}
+                          <strong>{link.subject}</strong> signed by <strong>{link.issuer}</strong>
+                          {link.holds ? '' : ' — but that signature does not hold'}
+                        </span>
+                      {/each}
+                    </span>
+                    Each was checked against the next, which is arithmetic and all that is
+                    checked. It is not part of the document: the file you were sent still carries
+                    only the signer's certificate, and the next reader will have to do this too.
+                    Whether
+                    {supplied[index].links[supplied[index].links.length - 1]?.issuer ??
+                      'the authority at the top'} deserves belief is the judgement below, and
+                    still not one this app makes.
+                  </div>
+                {/if}
               {/if}
             {/if}
 

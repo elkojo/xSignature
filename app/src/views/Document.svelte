@@ -1676,8 +1676,26 @@
                       A signature should carry the certificates above it, so a recipient can trace
                       it back. Without them, a reader that does not already hold
                       <strong>{identity.issuer}</strong> shows your name and no way to check it.
-                      Add them below, or re-export the key file with its full certification path —
-                      your authority publishes both.
+                      {#if signerClaims?.issuerUrl}
+                        Your certificate says where that one is published:
+                        <span class="outgoing-list">
+                          <span>
+                            <strong>Published at:</strong>
+                            <!-- A link the reader follows, never a request this app makes. -->
+                            <a href={signerClaims.issuerUrl} target="_blank" rel="noopener noreferrer">
+                              {signerClaims.issuerUrl}
+                            </a>
+                          </span>
+                        </span>
+                        Fetch it from there and add it below, or re-export the key file with its
+                        full certification path, which carries it without any of this. Many
+                        readers follow that address themselves when they are online — but a
+                        signature that encloses its chain does not depend on them being online,
+                        and this app will not fetch it for you.
+                      {:else}
+                        Add them below, or re-export the key file with its full certification path
+                        — your authority publishes both.
+                      {/if}
                     </div>
                   {/if}
 

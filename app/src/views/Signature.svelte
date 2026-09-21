@@ -373,8 +373,8 @@
       <div>
         <h1>Make a signature image</h1>
         <p>
-          Type your name in a handwriting face and export a transparent PNG or a vector SVG. It is
-          a picture of a signature, not a signature.
+          Type your name in a handwriting face, or draw one, and export a transparent PNG or a
+          vector SVG. It is a picture of a signature, not a signature.
         </p>
       </div>
       <span class="secure-note">Processed in this browser</span>
@@ -398,9 +398,8 @@
         <div class="flow-panel" bind:this={panels[0]}>
           <h2 class="panel-title">Type a name, or draw one</h2>
           <p class="panel-copy">
-            Either way the result becomes the same kind of outline, so the PNG and the SVG are the
-            same picture. Nothing you type or draw is sent anywhere, and none of it is kept when
-            you close the page.
+            Either way it becomes the same outlines, so the PNG and the SVG are the same picture.
+            Nothing you type or draw is sent anywhere, or kept when you close the page.
           </p>
 
           <div class="mode-tabs" role="tablist" aria-label="How to make the signature">
@@ -519,7 +518,7 @@
             <div class="notice warn">
               <strong>{face.name} cannot draw {missing.map((c) => `"${c}"`).join(', ')}.</strong>
               {missing.length === 1 ? 'It comes out as an empty box.' : 'They come out as empty boxes.'}
-              Another face may have the glyph — the notes beside each one say which are limited.
+              Another face may have it — the notes beside each one say which are limited.
             </div>
           {/if}
         </div>
@@ -643,8 +642,8 @@
         <div class="flow-panel" bind:this={panels[2]}>
           <h2 class="panel-title">Export it</h2>
           <p class="panel-copy">
-            Both files are drawn from the same outlines, so they are the same picture. The PNG has
-            a transparent background; the SVG contains paths only, so it opens correctly anywhere
+            Both come from the same outlines, so they are the same picture. The PNG has a
+            transparent background; the SVG is paths only, so it opens anywhere
             — {mode === 'type'
               ? `with or without ${face.name} installed`
               : 'at any size, without turning into a blurry bitmap'}.
@@ -748,8 +747,8 @@
           <strong>This is an image, not an electronic signature.</strong>
           It proves nothing about who made it — anyone who has the file can put it on any document.
           Use it for letterheads, email footers and form fields, not as evidence that you signed
-          something. If you need a document that proves who signed it, that takes a certificate and
-          a private key, which is what <em>Sign a document</em> can do with one you already have.
+          something. Proving who signed a document takes a certificate and a private key —
+          <em>Sign a document</em> does that with one you already have.
         </div>
       </div>
 

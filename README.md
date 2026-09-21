@@ -16,9 +16,11 @@ Three screens:
   own certificate, and optionally attach a timestamp. A document somebody has
   already signed can be signed again, which is how a contract gets a second
   party's name on it.
-- **Check a PDF** — read any PDF and report whether it carries a timestamp,
-  whether the document still matches it, and whether anything was appended
-  afterwards.
+- **Check a PDF** — read any PDF and report what it claims: a timestamp, a
+  signature of identity, or both. Whether the document still matches them,
+  whether anything was appended afterwards, what the signer's certificate says
+  about itself, and whether the certificates needed to trace it back are there.
+  When they are not, they can be supplied and checked on the spot.
 
 xSignature is a standalone app. It has no backend of its own and talks to no
 other application: the page loads, and from then on everything it does happens
@@ -73,6 +75,36 @@ container. It decrypts and nothing more; every signature is made by WebCrypto.
 Java keystores are refused with the `keytool` command that converts them. The
 format is Sun's own and its keys are wrapped in a cipher with no standard
 behind it.
+
+## Certificates a signature does not carry
+
+A signature is meant to carry the certificates above the signer's own, so a
+recipient can trace it back. Plenty of key files hold only the signer's — a
+PostSignum export does — and a signature made from one leaves the reader with a
+name and nothing to check it against.
+
+Both screens deal with that, and neither reaches for the network to do it.
+Signing, issuer certificates can be added beside the key file and go into the
+signature. Checking, they can be dropped in afterwards and are checked against
+the signer's certificate there and then. Nothing is written back to the
+document, so the next reader has to do it again.
+
+Where to fetch them is not a guess. A certificate names its issuer and usually
+carries the address that issuer's certificate is published at; the app reads it
+out and shows it as a link. It does not follow it, and could not: those
+addresses are plain `http`, which a page served over `https` may not load, and
+they answer no CORS preflight. Both are the browser's rules rather than this
+app's policy, and no opt-in lifts them. Following the link is your own
+navigation, not a request the app makes.
+
+The same extension names where revocation would be checked — an OCSP responder,
+and the revocation lists the authority publishes. Those are shown too, and not
+called for a different reason: reaching them would be a second network request,
+and this app makes one or none. So the signatures it writes carry no revocation
+data, which is what Acrobat means by "not LTV enabled". The cost is that a
+reader who is offline, or who opens the file after the certificate has expired,
+cannot establish that the certificate was still good when it was used. The
+arithmetic is unaffected either way.
 
 ## How it works
 
@@ -202,6 +234,10 @@ authority, because that is the only way a timestamp can mean anything —
 somebody independent has to see it. The document itself does not go, and the
 digest cannot be turned back into it. The interface states this before it
 happens, and shows the exact digest afterwards.
+
+Addresses read out of a certificate — where its issuer is published, where its
+revocation could be checked — are shown to you and never fetched. Opening one is
+your own navigation.
 
 CI enforces the rest: every host named anywhere in the build is checked against
 [`app/hosts-in-build.txt`](app/hosts-in-build.txt), and a host that is not

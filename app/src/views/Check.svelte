@@ -321,16 +321,18 @@
                   authority at the top deserves to be believed is the judgement below.
                 </div>
               {:else}
-                <div class="notice warn">
+                <!--
+                  Amber until the reader has continued the chain below, then
+                  plain. What it says stays true either way — the *document*
+                  still encloses nothing — but leaving a warning above a green
+                  result reads as unresolved when it is not.
+                -->
+                <div class="notice" class:warn={!supplied[index]?.links.length}>
                   <strong>This signature carries no issuer certificates.</strong>
-                  Only the signer's own, so the chain is not enclosed and a reader has to find the
-                  rest of it. The certificate names who issued it:
-                  <strong>{result.issuedBy ?? 'an authority it does not name'}</strong>. A reader
-                  that already holds that certificate — most do, for a well-known authority —
-                  builds the chain and checks the signature normally.
+                  Only the signer's own. The certificate names its issuer —
+                  <strong>{result.issuedBy ?? 'not by any name it gives'}</strong> —
                   {#if result.claims?.issuerUrl}
-                    The certificate says where that one is published, in Authority Information
-                    Access:
+                    and says where that one is published:
                     <span class="outgoing-list">
                       <span>
                         <strong>Published at:</strong>
@@ -346,19 +348,21 @@
                         </a>
                       </span>
                     </span>
-                    A reader that is online usually fetches it from there by itself, which is why
-                    this often validates elsewhere with no complaint at all. This app does not:
-                    opening that address is yours to do, and you can drop the file in below.
+                    Most readers hold a well-known authority already, and an online one fetches it
+                    from that address by itself — which is why this often validates elsewhere
+                    without complaint. This app does not fetch it.
+                    {#if supplied[index]?.links.length}
+                      <strong>Continued below.</strong>
+                    {:else}
+                      Open it yourself and drop it in below.
+                    {/if}
                   {:else}
-                    The certificate gives no address to fetch it from, so a reader that does not
-                    already hold it has nowhere to look but its own store.
+                    and gives no address to fetch it from, so a reader that does not already hold
+                    it has nowhere to look but its own store.
+                    {#if supplied[index]?.links.length}
+                      <strong>Continued below.</strong>
+                    {/if}
                   {/if}
-                  <br /><br />
-                  None of this touches the signature. The bytes are intact and the arithmetic
-                  holds; what is missing is enclosed evidence, which is a choice made when the
-                  document was signed. Signing here, the certificate step embeds these, and a key
-                  file re-exported with its full certification path carries them without any of
-                  this.
                 </div>
 
                 <!--
@@ -397,13 +401,11 @@
                         </span>
                       {/each}
                     </span>
-                    Each was checked against the next, which is arithmetic and all that is
-                    checked. It is not part of the document: the file you were sent still carries
-                    only the signer's certificate, and the next reader will have to do this too.
-                    Whether
+                    Checked link by link, which is arithmetic and all that is checked. Nothing
+                    was written back: the file still carries only the signer's certificate, so the
+                    next reader will have to do this too. Whether
                     {supplied[index].links[supplied[index].links.length - 1]?.issuer ??
-                      'the authority at the top'} deserves belief is the judgement below, and
-                    still not one this app makes.
+                      'the authority at the top'} deserves belief is still not this app's call.
                   </div>
                 {/if}
               {/if}
@@ -426,13 +428,13 @@
                       ? ', issued to an organisation for sealing'
                       : ''}.
                   {#if result.claims.onQualifiedDevice}
-                    It also declares that the private key is held on a qualified signature
-                    creation device.
+                    It also declares the private key is held on a qualified signature creation
+                    device.
                   {:else}
-                    It does <strong>not</strong> declare that the private key is held on a
-                    qualified signature creation device — and a qualified electronic signature
-                    needs both. On that reading this is an advanced signature made with a
-                    qualified certificate, which is a real thing and not the same thing.
+                    It does <strong>not</strong> declare the key is held on a qualified signature
+                    creation device, and a qualified electronic signature needs both. So this is
+                    an advanced signature made with a qualified certificate — a real standing, and
+                    not the same one.
                   {/if}
                 {:else}
                   It makes no claim to being a qualified certificate under eIDAS.
@@ -446,17 +448,16 @@
                   {result.claims.limit.currency}.
                 {/if}
                 <br /><br />
-                These are the certificate authority's statements, read out of the certificate.
-                Nothing here checks whether they are true — that is the same judgement as below,
-                and needs the same trusted list this app does not have.
+                The authority's own statements, read out of the certificate. Nothing here checks
+                they are true.
               </div>
 
               {#if result.claims.keyUsage.stated && !result.claims.keyUsage.digitalSignature && !result.claims.keyUsage.nonRepudiation}
                 <div class="notice warn">
                   <strong>This certificate was not issued for signing.</strong>
-                  Its key usage permits neither digital signature nor non-repudiation, so whatever
-                  it was meant for, it was not this. The signature above is still mathematically
-                  sound; a reader that enforces key usage will reject it anyway.
+                  Its key usage permits neither digital signature nor non-repudiation, so
+                  whatever it was for, it was not this. The signature above is still sound
+                  arithmetic; a reader that enforces key usage will reject it anyway.
                 </div>
               {/if}
             {/if}
@@ -476,7 +477,7 @@
                 <strong>The time on this signature is not the signer's own.</strong>
                 {result.timestamp.signedBy ?? 'An authority'} saw this signature and dated it, so
                 the time does not rest on the signer's computer. Whether that authority is worth
-                believing is, like the signer's identity, a question for your PDF reader.
+                believing is, like the signer's identity, your PDF reader's call.
               </div>
             {/if}
 
@@ -519,14 +520,14 @@
             -->
             <div class="notice">
               <strong>What this does not tell you.</strong>
-              Whether <em>{result.signedBy ?? 'that signer'}</em> is who they say they are, and
-              whether anyone should believe them, is not checked here — that needs a list of trusted
-              authorities kept up to date against revocations, which this app has no way to do
-              offline. Open the file in a PDF reader for that judgement. The name above is read
-              straight out of the token and is not vouched for.
+              Whether <em>{result.signedBy ?? 'that signer'}</em> is who they say they are. That
+              takes two things this app does not have: a list of trusted authorities, which it
+              chooses not to ship, and a revocation check, which needs a network it does not use.
+              Open the file in a PDF reader for that judgement. The name above is read out of the
+              token, not vouched for.
               {#if !result.isTimestamp}
-                Anything under Reason or Location was typed by whoever signed. The signature stops
-                anyone else altering it; nothing makes it true.
+                Reason and Location were typed by whoever signed — the signature stops anyone else
+                altering them; nothing makes them true.
               {/if}
             </div>
           </div>

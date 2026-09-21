@@ -120,5 +120,13 @@
       AGPL-3.0</a
     >. It makes signature pictures, which prove nothing, and — if you bring a certificate — real
     signatures, which prove who signed and that nothing changed. It never makes qualified ones.
+    <!--
+      Inside the footer's own div rather than beside it: `footer.site > div`
+      carries the padding, and a second child would repeat all of it. So a
+      deployed build can say which one it is — without this, checking that a
+      release reached the site meant grepping the bundle for a sentence that
+      had changed, which works and is a poor substitute for the build saying so.
+    -->
+    <div class="site-version">Version {__APP_VERSION__}</div>
   </div>
 </footer>

@@ -1,0 +1,21 @@
+/*
+ * Styling that belongs to the shell rather than to any one screen.
+ *
+ * `app.css` is xNotary's, copied across byte for byte and kept that way so the
+ * family resemblance stays a resemblance rather than a fork. Anything this app
+ * adds to the chrome around the screens goes here instead, where it can be read
+ * as this app's own.
+ */
+
+/*
+ * The version, under the footer text.
+ *
+ * Quieter than the prose above it, because it is a fact for somebody checking
+ * which build reached the site rather than something a reader needs. Tabular
+ * figures so it does not shift about between releases.
+ */
+.site-version {
+  margin-top: 14px;
+  color: #64736c;
+  font-variant-numeric: tabular-nums;
+}

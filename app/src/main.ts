@@ -2,6 +2,7 @@ import { mount } from 'svelte';
 
 import App from './App.svelte';
 import './app.css';
+import './shell.css';
 import './signature.css';
 import './document.css';
 

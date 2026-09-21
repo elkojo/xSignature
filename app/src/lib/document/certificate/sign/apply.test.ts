@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { PDFArray, PDFDict, PDFDocument, PDFName } from '@cantoo/pdf-lib';
+import { ContentInfo, SignedData } from 'pkijs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { checkSignatures } from '../../verify/verify';
@@ -119,8 +120,28 @@ describe('applyCertificateSignature', () => {
     expect(latin1(signed.bytes)).toContain('/M (D:20260915103000Z)');
 
     // The same moment, signed, so it cannot be edited without breaking this.
+    // It is read back out of `/M`, which is the only place a PAdES signature
+    // may state it.
     const [checked] = await checkSignatures(signed.bytes);
     expect(checked.time?.toISOString()).toBe(when.toISOString());
+  });
+
+  it('carries the signed attributes the PAdES baseline requires, and no others', async () => {
+    // EN 319 142-1 forbids `signing-time` in the CMS: the clock belongs in
+    // `/M`, checked above. A validator holding the baseline profile against a
+    // file that carries both drops it to the older PAdES-BES, so its absence
+    // is asserted rather than left to be noticed in somebody's validator.
+    const signed = await applyCertificateSignature(await blank(), identity);
+    const info = ContentInfo.fromBER(signed.token.slice().buffer as ArrayBuffer);
+    const attributes = new SignedData({ schema: info.content }).signerInfos[0].signedAttrs
+      ?.attributes;
+
+    const types = (attributes ?? []).map((attribute) => attribute.type);
+    expect(types).toEqual([
+      '1.2.840.113549.1.9.3', // content-type
+      '1.2.840.113549.1.9.4', // message-digest
+      '1.2.840.113549.1.9.16.2.47', // signing-certificate-v2
+    ]);
   });
 
   it('attaches an invisible field and marks the form append-only', async () => {

@@ -13,18 +13,30 @@
  * certificate made it, and when, in a way that cannot be altered without
  * breaking the signature.
  *
- * Four attributes go in, and each earns its place:
+ * Three attributes go in, and each earns its place:
  *
  * - **contentType** and **messageDigest** are required by CMS. Without the
  *   second, the signature would not be over the document at all.
- * - **signingTime** is the signer's own clock, and is worth exactly what that
- *   is worth: it is asserted by whoever signed and checked by nobody. A
- *   timestamp from an authority is the version of this claim that means
- *   something, which is why one can be attached afterwards.
  * - **signing-certificate-v2** binds the signature to one specific certificate
  *   by its hash. CAdES requires it, and it closes a real gap: without it, a
  *   signature verifying against "some certificate in the file" is a weaker
  *   statement than it looks.
+ *
+ * A fourth one is conspicuously absent, and the absence is deliberate.
+ * **signing-time** — the signer's own clock — may not be here. EN 319 122-1
+ * requires it for a CAdES baseline signature and EN 319 142-1 forbids it for a
+ * PAdES one, because in a PDF that claim already has a home: `/M` in the
+ * signature dictionary, which sits inside the byte range and is therefore
+ * signed just the same. Writing it in both places is not belt and braces, it is
+ * a second copy that can disagree with the first, and a validator holding the
+ * PAdES baseline profile against the file drops it to the older PAdES-BES on
+ * sight. So the clock is written once, by `signature-dict`, and read back from
+ * there by `verify`.
+ *
+ * What it is worth is unchanged by where it lives: it is asserted by whoever
+ * signed and checked by nobody. A timestamp from an authority is the version of
+ * that claim which means something, and it is attached below as an unsigned
+ * attribute.
  */
 import * as asn1js from 'asn1js';
 import {
@@ -43,7 +55,6 @@ import {
 const ID_DATA = '1.2.840.113549.1.7.1';
 const ID_SIGNED_DATA = '1.2.840.113549.1.7.2';
 const CONTENT_TYPE = '1.2.840.113549.1.9.3';
-const SIGNING_TIME = '1.2.840.113549.1.9.5';
 const MESSAGE_DIGEST = '1.2.840.113549.1.9.4';
 const SIGNING_CERTIFICATE_V2 = '1.2.840.113549.1.9.16.2.47';
 /** `id-aa-signatureTimeStampToken`, where a signature's own timestamp lives. */
@@ -57,8 +68,6 @@ export interface SigningMaterial {
 }
 
 export interface CmsOptions {
-  /** The signer's clock, as it goes into the signed attributes. */
-  readonly signingTime?: Date;
   /**
    * Fetch a timestamp over the signature value, if one is wanted.
    *
@@ -132,10 +141,6 @@ export async function signDetached(
       new Attribute({
         type: CONTENT_TYPE,
         values: [new asn1js.ObjectIdentifier({ value: ID_DATA })],
-      }),
-      new Attribute({
-        type: SIGNING_TIME,
-        values: [new asn1js.UTCTime({ valueDate: options.signingTime ?? new Date() })],
       }),
       new Attribute({
         type: MESSAGE_DIGEST,

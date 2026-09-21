@@ -44,6 +44,19 @@ export interface FoundSignature {
   readonly location: string | null;
   readonly name: string | null;
   /**
+   * `/M`: the signer's own clock, as the dictionary states it.
+   *
+   * This is where a PAdES signature's claimed time lives — not in the CMS,
+   * which is forbidden a `signing-time` attribute by EN 319 142-1. It is inside
+   * the byte range, so it is covered by the signature and cannot be edited
+   * without breaking it; it is still the signer's own assertion, checked by
+   * nobody, and a timestamp is the version of it that is somebody else's.
+   *
+   * Null when the entry is absent or unparseable, which a timestamp's own
+   * dictionary usually is — a `/DocTimeStamp` carries its time in the token.
+   */
+  readonly signingTime: Date | null;
+  /**
    * Whether the range reaches the end of the file.
    *
    * When it does not, something was appended after this signature was made and
@@ -143,6 +156,57 @@ function parseHex(hex: string): Uint8Array {
 }
 
 /**
+ * A PDF date string as a moment, or null if it is not one.
+ *
+ * `D:YYYYMMDDHHmmSS` followed by a zone, of which everything after the year is
+ * optional — producers truncate it wherever they please, so each field falls
+ * back to the start of its range rather than failing the whole string.
+ *
+ * The zone is `Z`, or `+HH'mm'` / `-HH'mm'` with the apostrophes optional
+ * because plenty of writers leave the last one off. A date with **no** zone
+ * means the producer's local time, which is not knowable from here; it is read
+ * as UTC and the error is bounded by a day. Reading it in the *reader's* zone
+ * would be worse, because then the same file states a different time depending
+ * on who opens it.
+ */
+export function parsePdfDate(value: string): Date | null {
+  const match =
+    /^(?:D:)?(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:(Z)|([+-])(\d{2})'?(\d{2})?'?)?/.exec(
+      value.trim(),
+    );
+  if (!match) return null;
+
+  const [, year, month, day, hour, minute, second, , sign, offsetHours, offsetMinutes] = match;
+  const at = Date.UTC(
+    Number(year),
+    Number(month ?? '1') - 1,
+    Number(day ?? '1'),
+    Number(hour ?? '0'),
+    Number(minute ?? '0'),
+    Number(second ?? '0'),
+  );
+  if (!Number.isFinite(at)) return null;
+
+  // An offset says how far the stated wall clock runs ahead of UTC, so it comes
+  // back off to get there.
+  const offset =
+    sign === undefined
+      ? 0
+      : (sign === '-' ? -1 : 1) *
+        (Number(offsetHours) * 60 + Number(offsetMinutes ?? '0')) *
+        60_000;
+
+  const when = new Date(at - offset);
+  return Number.isNaN(when.getTime()) ? null : when;
+}
+
+/** Read `/Key (D:…)` out of a dictionary as a moment. */
+function dateEntry(text: string, key: string): Date | null {
+  const raw = stringEntry(text, key);
+  return raw === null ? null : parsePdfDate(raw);
+}
+
+/**
  * Every signature dictionary in the file, in the order they appear.
  *
  * A document may hold more than one: each incremental update can add another,
@@ -185,6 +249,7 @@ export function findSignatures(pdf: Uint8Array): FoundSignature[] {
       reason: stringEntry(dictionary, 'Reason'),
       location: stringEntry(dictionary, 'Location'),
       name: stringEntry(dictionary, 'Name'),
+      signingTime: dateEntry(dictionary, 'M'),
       coversToEndOfFile: isEndOfFile(pdf, second + secondLength),
     });
   }

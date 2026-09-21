@@ -54,8 +54,8 @@ attached to. On its own it establishes one fact and no others: that a file
 existed at a particular time, according to an authority that has never heard of
 whoever made it. Attached to a certificate signature it says more — that the
 *signature* existed then, so the time of signing stops resting on the signer's
-own computer clock. That is a PAdES-B-T signature, and it is one network
-request, not two.
+own computer clock. That is a PAdES-B-T signature — PAdES-B-B without it — and
+it is one network request, not two.
 
 ## Key files
 

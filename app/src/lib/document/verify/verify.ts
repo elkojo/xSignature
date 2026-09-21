@@ -32,7 +32,6 @@
  * interesting failure — a document altered after signing — is caught by (1)
  * regardless.
  */
-import * as asn1js from 'asn1js';
 import { Certificate, ContentInfo, SignedData, TSTInfo } from 'pkijs';
 
 import { checkLinks, orderChain, type ChainLink } from '../certificate/read/chain';
@@ -157,8 +156,9 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
   }
 
   // A timestamp carries its time inside a TSTInfo in the signed content; a
-  // signature carries it as a signed attribute, or not at all. Neither is
-  // fatal to read — the integrity check below does not depend on it.
+  // signature carries it in `/M` in its dictionary, where PAdES puts it and
+  // where `find` already read it. Neither is fatal to read — the integrity
+  // check below does not depend on it.
   let time: Date | null = null;
   let policy: string | null = null;
   if (isTimestamp) {
@@ -183,7 +183,7 @@ async function checkOne(pdf: Uint8Array, signature: FoundSignature): Promise<Che
       };
     }
   } else {
-    time = signingTimeOf(signed);
+    time = signature.signingTime;
   }
 
   const described = {
@@ -266,18 +266,6 @@ async function embeddedTimestampOf(
   } catch {
     return null;
   }
-}
-
-/** The signer's own clock, out of the signed attributes. */
-function signingTimeOf(signed: SignedData): Date | null {
-  const attributes = signed.signerInfos[0]?.signedAttrs?.attributes ?? [];
-  const attribute = attributes.find((candidate) => candidate.type === '1.2.840.113549.1.9.5');
-  const value = attribute?.values[0];
-
-  if (value instanceof asn1js.UTCTime || value instanceof asn1js.GeneralizedTime) {
-    return value.toDate();
-  }
-  return null;
 }
 
 /**

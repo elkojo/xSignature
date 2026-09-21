@@ -151,7 +151,6 @@ export async function applyCertificateSignature(
 
   const source = options.timestamp;
   const token = await signDetached(covered, material, {
-    signingTime,
     timestampSignature: source
       ? async (signatureValue) => {
           stamped = await source(signatureValue);

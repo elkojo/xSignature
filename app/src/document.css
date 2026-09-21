@@ -132,6 +132,58 @@
   pointer-events: none;
 }
 
+/*
+ * What is already on the page, outlined.
+ *
+ * Not decoration. An earlier signature block is painted into the preview by the
+ * renderer like any other ink, and nothing about it says it is an annotation
+ * that must not be covered — so a second signer drags a box straight over it
+ * and a validator reports overlapping annotations on the result. The outline is
+ * the missing fact, and it turns red when the block being placed is on it.
+ *
+ * Pointer events off throughout: this marks ground, it does not take drags. The
+ * signature overlay sits above it and stays draggable.
+ */
+.taken {
+  position: absolute;
+  border: 1px dashed rgba(16, 32, 26, 0.38);
+  border-radius: 3px;
+  background: rgba(16, 32, 26, 0.045);
+  pointer-events: none;
+}
+
+.taken.hit {
+  border-color: var(--bad);
+  border-style: solid;
+  background: rgba(168, 57, 47, 0.1);
+}
+
+/*
+ * Sat inside the box once, and covered the first line of the very block it was
+ * naming. It goes above instead: what is marked is ground to keep off, and
+ * hiding part of it to say so defeats the point.
+ */
+.taken-label {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: -1px;
+  max-width: 100%;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  background: rgba(16, 32, 26, 0.62);
+  color: var(--paper);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.taken.hit .taken-label {
+  background: var(--bad);
+}
+
 .slider {
   width: 100%;
   max-width: 320px;

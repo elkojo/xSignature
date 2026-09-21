@@ -8,6 +8,7 @@ import {
   normalizeRotation,
   placementMatrix,
   unitSquareToBox,
+  viewRectFromUserSpace,
   widgetRect,
   type Matrix,
   type PageGeometry,
@@ -290,26 +291,26 @@ describe('widgetRect', () => {
   });
 });
 
+/** Map a page-space rectangle back to fractions of the displayed page. */
+function backToFractions(
+  page: PageGeometry,
+  [x1, y1, x2, y2]: readonly [number, number, number, number],
+) {
+  const { width: pw, height: ph } = page;
+  const view = displayedSize(page);
+  const box =
+    page.rotation === 0
+      ? { x: x1 - page.x, y: ph - (y2 - page.y), w: x2 - x1, h: y2 - y1 }
+      : page.rotation === 90
+        ? { x: y1 - page.y, y: x1 - page.x, w: y2 - y1, h: x2 - x1 }
+        : page.rotation === 180
+          ? { x: pw - (x2 - page.x), y: y1 - page.y, w: x2 - x1, h: y2 - y1 }
+          : { x: ph - (y2 - page.y), y: pw - (x2 - page.x), w: y2 - y1, h: x2 - x1 };
+
+  return { x: box.x / view.width, y: box.y / view.height, width: box.w / view.width };
+}
+
 describe('widgetRect, round-tripped', () => {
-  /** Map a page-space rectangle back to fractions of the displayed page. */
-  function backToFractions(
-    page: PageGeometry,
-    [x1, y1, x2, y2]: readonly [number, number, number, number],
-  ) {
-    const { width: pw, height: ph } = page;
-    const view = displayedSize(page);
-    const box =
-      page.rotation === 0
-        ? { x: x1 - page.x, y: ph - (y2 - page.y), w: x2 - x1, h: y2 - y1 }
-        : page.rotation === 90
-          ? { x: y1 - page.y, y: x1 - page.x, w: y2 - y1, h: x2 - x1 }
-          : page.rotation === 180
-            ? { x: pw - (x2 - page.x), y: y1 - page.y, w: x2 - x1, h: y2 - y1 }
-            : { x: ph - (y2 - page.y), y: pw - (x2 - page.x), w: y2 - y1, h: x2 - x1 };
-
-    return { x: box.x / view.width, y: box.y / view.height, width: box.w / view.width };
-  }
-
   it('puts the block where the reader dragged it, at every rotation', () => {
     // The property that matters and the one hardest to see from the code: a
     // rectangle dragged on the displayed page has to come back to the same
@@ -334,6 +335,64 @@ describe('widgetRect, round-tripped', () => {
 
     expect(got.x).toBeCloseTo(asked.x, 6);
     expect(got.y).toBeCloseTo(asked.y, 6);
+  });
+});
+
+describe('viewRectFromUserSpace', () => {
+  it('undoes widgetRect exactly, at every rotation', () => {
+    // The pair has to be invertible or the app cannot show what is already on
+    // the page: an annotation's rectangle is written in user space and has to
+    // come back to the same fractions it would have been dragged to.
+    const asked = { x: 0.12, y: 0.62, width: 0.35, height: 0.09 };
+
+    for (const rotation of [0, 90, 180, 270] as const) {
+      const page = A4(rotation);
+      const back = viewRectFromUserSpace(page, widgetRect(page, asked));
+
+      expect(back.x).toBeCloseTo(asked.x, 6);
+      expect(back.y).toBeCloseTo(asked.y, 6);
+      expect(back.width).toBeCloseTo(asked.width, 6);
+      expect(back.height).toBeCloseTo(asked.height, 6);
+    }
+  });
+
+  it('undoes it on a page cropped from a larger sheet', () => {
+    const asked = { x: 0.3, y: 0.25, width: 0.2, height: 0.1 };
+    const page: PageGeometry = { x: 24, y: 36, width: 500, height: 700, rotation: 270 };
+    const back = viewRectFromUserSpace(page, widgetRect(page, asked));
+
+    expect(back.x).toBeCloseTo(asked.x, 6);
+    expect(back.y).toBeCloseTo(asked.y, 6);
+    expect(back.width).toBeCloseTo(asked.width, 6);
+    expect(back.height).toBeCloseTo(asked.height, 6);
+  });
+
+  it('agrees with the hand-written mapping this file already trusted', () => {
+    // `backToFractions` above expands each rotation by hand; this one maps four
+    // corners and takes the bounding box. Two ways to the same answer, which is
+    // the only real check on a switch statement of coordinate flips.
+    const page = A4(90, { x: 24, y: 36 });
+    const rect = widgetRect(page, { x: 0.45, y: 0.15, width: 0.3, height: 0.2 });
+
+    const byHand = backToFractions(page, rect);
+    const byCorners = viewRectFromUserSpace(page, rect);
+
+    expect(byCorners.x).toBeCloseTo(byHand.x, 6);
+    expect(byCorners.y).toBeCloseTo(byHand.y, 6);
+    expect(byCorners.width).toBeCloseTo(byHand.width, 6);
+  });
+
+  it('takes a rectangle written the wrong way round', () => {
+    // PDF says lower-left first and plenty of writers do not. Mapping all four
+    // corners and taking the bounding box means the result is the same either
+    // way, rather than a negative width nothing downstream can draw.
+    const page = A4(0);
+    const upright = viewRectFromUserSpace(page, [100, 200, 300, 400]);
+    const inverted = viewRectFromUserSpace(page, [300, 400, 100, 200]);
+
+    expect(inverted).toEqual(upright);
+    expect(upright.width).toBeGreaterThan(0);
+    expect(upright.height).toBeGreaterThan(0);
   });
 });
 

@@ -242,6 +242,69 @@ export function widgetRect(
 }
 
 /**
+ * Where a point in the page's own coordinates lands on the display.
+ *
+ * The exact inverse of `toUserSpace`, and kept beside it so the two can be read
+ * against each other. A display point is y-down from the top left of the page
+ * *as shown*; what goes in is y-up in user space, crop box offset included.
+ */
+function toDisplaySpace(page: PageGeometry, x: number, y: number): { x: number; y: number } {
+  const { x: cx, y: cy, width: pw, height: ph } = page;
+
+  switch (page.rotation) {
+    case 0:
+      return { x: x - cx, y: cy + ph - y };
+    case 90:
+      return { x: y - cy, y: x - cx };
+    case 180:
+      return { x: cx + pw - x, y: y - cy };
+    case 270:
+      return { x: cy + ph - y, y: cx + pw - x };
+  }
+}
+
+/**
+ * Where an annotation already on the page sits, in fractions of the display.
+ *
+ * The inverse of `widgetRect`: that one takes a box the reader dragged and says
+ * what rectangle to write, this one takes a rectangle already written and says
+ * where to draw it. Needed because a signature being added has to be shown what
+ * is already there — a rectangle overlapping an earlier signature is flagged by
+ * validators as a way of hiding what was signed, and nobody can avoid a
+ * rectangle they cannot see.
+ *
+ * All four corners are mapped and the bounding box taken, the same way round as
+ * `widgetRect` does it, which makes the pair exactly invertible: a quarter turn
+ * maps a rectangle to a rectangle.
+ */
+export function viewRectFromUserSpace(
+  page: PageGeometry,
+  rect: readonly [number, number, number, number],
+): ViewRect {
+  const view = displayedSize(page);
+  const [x1, y1, x2, y2] = rect;
+
+  const corners = [
+    toDisplaySpace(page, x1, y1),
+    toDisplaySpace(page, x2, y1),
+    toDisplaySpace(page, x2, y2),
+    toDisplaySpace(page, x1, y2),
+  ];
+
+  const xs = corners.map((corner) => corner.x);
+  const ys = corners.map((corner) => corner.y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+
+  return {
+    x: left / view.width,
+    y: top / view.height,
+    width: (Math.max(...xs) - left) / view.width,
+    height: (Math.max(...ys) - top) / view.height,
+  };
+}
+
+/**
  * The matrix that keeps an appearance upright on a page stored rotated.
  *
  * An annotation's appearance is drawn in the page's coordinates, and a reader

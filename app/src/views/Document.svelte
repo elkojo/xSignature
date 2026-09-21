@@ -65,7 +65,8 @@
   import { buildAppearance, fitBlock } from '../lib/document/certificate/appearance/block';
   import { loadAppearanceFont } from '../lib/document/certificate/appearance/font';
   import { blockHeightFor, detailLines } from '../lib/document/certificate/appearance/layout';
-  import { widgetRect } from '../lib/document/place/placement';
+  import { viewRectFromUserSpace, widgetRect } from '../lib/document/place/placement';
+  import { occupantsOn, overlapping, type Occupant } from '../lib/document/pdf/annotations';
   import { unsupportedCharacters } from '../lib/signature/type/coverage';
   import type { Font } from 'opentype.js';
 
@@ -312,6 +313,63 @@
 
     return { x: at.x, y: at.y, width: span, height: height / view.height };
   });
+
+  /**
+   * What is already on this page, and where.
+   *
+   * A signature added beside an earlier one must not land *on* it: validators
+   * report overlapping annotations as a way of hiding what an earlier signature
+   * covered, and DSS says so out loud beside an otherwise valid signature. The
+   * earlier block does get drawn into the preview — it is an annotation with an
+   * appearance, so PDF.js paints it like any other ink — but nothing marks it
+   * as a thing that must not be covered, which is the whole of why it gets
+   * covered.
+   */
+  let occupied = $derived.by(() => {
+    if (!opened) return [];
+    return occupantsOn(opened.doc, page);
+  });
+
+  /** Where each of those sits on the preview, in the pixels it is shown at. */
+  let occupiedOnScreen = $derived.by(() => {
+    if (!geometry || !shown) return [];
+    return occupied.map((occupant) => {
+      const view = viewRectFromUserSpace(geometry!, occupant.rect);
+      return {
+        occupant,
+        x: view.x * shown!.width,
+        y: view.y * shown!.height,
+        width: view.width * shown!.width,
+        height: view.height * shown!.height,
+      };
+    });
+  });
+
+  /**
+   * The ones the signature would land on, if it went where it is now.
+   *
+   * Only for a visible certificate signature: that is the only thing this app
+   * writes as an annotation. Ink drawn on the page is page content and overlaps
+   * nothing, and an invisible signature has no rectangle to overlap with.
+   */
+  let collisions = $derived.by(() => {
+    if (!placingBlock || !rect || !geometry) return [];
+    return overlapping(widgetRect(geometry, rect), occupied);
+  });
+
+  /** What to call an occupant in a sentence. */
+  function nameOf(occupant: Occupant): string {
+    if (occupant.kind === 'signature') {
+      return occupant.label ? `the signature by ${occupant.label}` : 'a signature already here';
+    }
+    if (occupant.kind === 'empty-signature') {
+      return occupant.label ? `the signature field "${occupant.label}"` : 'an empty signature field';
+    }
+    if (occupant.kind === 'field') {
+      return occupant.label ? `the form field "${occupant.label}"` : 'a form field';
+    }
+    return occupant.label ? `a ${occupant.label.toLowerCase()} annotation` : 'an annotation';
+  }
 
   // Keep the signature on the sheet when it is resized near an edge.
   $effect(() => {
@@ -1244,6 +1302,24 @@
               {/if}
               <div class="sheet-stage" bind:this={previewHost}></div>
 
+              <!--
+                What is already on this page, outlined. The earlier signature is
+                painted into the preview by the renderer like any other ink, so
+                without this there is nothing to say it may not be covered — and
+                a rectangle nobody can see is a rectangle nobody can avoid.
+              -->
+              {#each occupiedOnScreen as taken}
+                <div
+                  class="taken"
+                  class:hit={collisions.includes(taken.occupant)}
+                  style="left: {taken.x}px; top: {taken.y}px; width: {taken.width}px; height: {taken.height}px"
+                >
+                  <span class="taken-label">
+                    {taken.occupant.label ?? (taken.occupant.kind === 'annotation' ? 'annotation' : 'field')}
+                  </span>
+                </div>
+              {/each}
+
               {#if overlay && signature}
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div
@@ -1666,6 +1742,17 @@
                         block with the size slider or shorten the reason — otherwise what is drawn
                         is cut off, and a signed document is the wrong place for a sentence that
                         stops halfway.
+                      </div>
+                    {/if}
+
+                    {#if collisions.length > 0}
+                      <div class="notice warn">
+                        <strong>This lands on something already on the page.</strong>
+                        It would cover {collisions.map(nameOf).join(', ')}. The signature is still
+                        valid, but a validator reports overlapping annotations — it is how a
+                        document is made to show one thing while being signed as another, so the
+                        check cannot tell your placement from that. Move the block clear of the
+                        outlined areas, or leave it if you mean it.
                       </div>
                     {/if}
 

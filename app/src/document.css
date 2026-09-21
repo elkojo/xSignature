@@ -223,6 +223,13 @@
   margin-top: 2px;
   color: var(--ink-soft);
   font-size: 13px;
+  /*
+   * Reset, not a choice. A note inside a `<label>` inherits the label's 720,
+   * which left it heavier than the `strong` heading above it at 650. This is
+   * `.field-note`'s weight — the same note in the same voice, told apart only
+   * by which element it happens to sit inside.
+   */
+  font-weight: 400;
   line-height: 1.5;
 }
 
@@ -343,6 +350,55 @@ kbd {
   background: #fafaf7;
   font-family: inherit;
   font-size: 12px;
+}
+
+/*
+ * "Optional", beside a step's number.
+ *
+ * Steps 4 and 5 are both things the reader asks for rather than things the app
+ * does on its own, and a numbered step reads like an instruction unless it says
+ * otherwise. Sized off the heading so it stays proportionate as that clamps.
+ */
+.panel-optional {
+  display: inline-block;
+  transform: translateY(-0.18em);
+  margin-left: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-dark);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/*
+ * Three short fields on one row.
+ *
+ * Name, reason and location are a few words each and were stacked full width,
+ * which put a third of a screen between the first and the block they describe.
+ * The children keep their own `.field` margin, so the row carries none of its
+ * own.
+ */
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 14px;
+}
+
+@media (max-width: 620px) {
+  .field-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Sits under the label rather than under an input, so it leads instead of
+   explaining after the fact. */
+.authority-note {
+  margin: -2px 0 10px;
 }
 
 /*

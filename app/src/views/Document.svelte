@@ -1254,7 +1254,7 @@
           </div>
 
           <div class="flow-panel">
-            <h2 class="panel-title">3 · Place it, and save</h2>
+            <h2 class="panel-title">3 · Place it</h2>
             <p class="panel-copy">
               {#if placingBlock}
                 Drag the signature block to where it goes. Arrow keys nudge it; hold shift to move
@@ -1443,16 +1443,35 @@
             {#if !signature}
               <div class="notice">Bring in a signature above and it will appear on the page.</div>
             {/if}
+          </div>
+
+          <!--
+            The certificate on a step of its own.
+
+            It was the second half of "place it, and save", under the timestamp,
+            in a panel that ran to four screens. They are different jobs: one
+            decides where a picture goes, the other makes the only claim in this
+            app that proves anything. Numbered rather than lettered, because
+            every other step on every other screen is.
+          -->
+          <div class="flow-panel">
+            <h2 class="panel-title">
+              4 · Sign with a certificate <span class="panel-optional">Optional</span>
+            </h2>
+            <p class="panel-copy">
+              Everything above puts a picture on a page. This signs the finished bytes with a key
+              you supply, which is the one thing here that proves anything: that whoever held that
+              key signed this file, and that it has not changed since.
+            </p>
 
             <div class="field timestamp-field">
               <label class="check">
                 <input type="checkbox" bind:checked={wantCertificate} />
                 <span>
-                  <strong>Sign with a certificate</strong>
+                  <strong>Use a certificate</strong>
                   <span class="check-note">
-                    Signs the finished bytes with a key you supply — the one thing here that
-                    proves anything: that whoever held that key signed this file, and that it has
-                    not changed since.
+                    Your key file is read in this browser and never sent anywhere; the password
+                    opens it and is then forgotten.
                   </span>
                 </span>
               </label>
@@ -1669,29 +1688,37 @@
                     </div>
                   </div>
 
-                  <div class="field">
-                    <label for="signer-name">Name</label>
-                    <input id="signer-name" class="input" type="text" bind:value={signerName} />
-                  </div>
-                  <div class="field">
-                    <label for="signer-reason">Reason</label>
-                    <input
-                      id="signer-reason"
-                      class="input"
-                      type="text"
-                      placeholder="Why you are signing, if it matters"
-                      bind:value={signerReason}
-                    />
-                  </div>
-                  <div class="field">
-                    <label for="signer-location">Location</label>
-                    <input
-                      id="signer-location"
-                      class="input"
-                      type="text"
-                      placeholder="Where you are, if it matters"
-                      bind:value={signerLocation}
-                    />
+                  <!--
+                    Three short answers to one question, so they sit on one row
+                    rather than stacked full width down a third of the screen.
+                    They stack again below 620px, where a third of a row is no
+                    longer wide enough to type a reason into.
+                  -->
+                  <div class="field-row">
+                    <div class="field">
+                      <label for="signer-name">Name</label>
+                      <input id="signer-name" class="input" type="text" bind:value={signerName} />
+                    </div>
+                    <div class="field">
+                      <label for="signer-reason">Reason</label>
+                      <input
+                        id="signer-reason"
+                        class="input"
+                        type="text"
+                        placeholder="Why, if it matters"
+                        bind:value={signerReason}
+                      />
+                    </div>
+                    <div class="field">
+                      <label for="signer-location">Location</label>
+                      <input
+                        id="signer-location"
+                        class="input"
+                        type="text"
+                        placeholder="Where, if it matters"
+                        bind:value={signerLocation}
+                      />
+                    </div>
                   </div>
                   <p class="field-note">
                     All voluntary; an empty one is left out, not written blank. They go into the
@@ -1770,20 +1797,32 @@
               {/if}
             {/if}
 
+          </div>
+
+          <div class="flow-panel">
+            <h2 class="panel-title">
+              5 · Add a timestamp <span class="panel-optional">Optional</span>
+            </h2>
+            <p class="panel-copy">
+              {#if wantCertificate && identity}
+                An independent authority dates your signature, so when it was made does not rest
+                on this computer's clock. It goes inside the signature rather than beside it, and
+                it is separate from the certificate you sign with — it says nothing about who you
+                are.
+              {:else}
+                An independent authority records that this exact file existed at a particular
+                time. It records nothing about who made it.
+              {/if}
+            </p>
+
             <div class="field timestamp-field">
               <label class="check">
                 <input type="checkbox" bind:checked={wantTimestamp} />
                 <span>
                   <strong>Add a timestamp</strong>
                   <span class="check-note">
-                    {#if wantCertificate && identity}
-                      Has an authority date your signature, so the time it was made does not rest
-                      on your own computer's clock. It goes inside the signature rather than
-                      beside it.
-                    {:else}
-                      Records that this exact file existed at a particular time. It records nothing
-                      about who made it.
-                    {/if}
+                    The one thing this app sends anywhere. What goes, and where, is set out in
+                    full below before it happens.
                   </span>
                 </span>
               </label>
@@ -1817,7 +1856,11 @@
               </div>
 
               <div class="field">
-                <span class="field-label">Authority</span>
+                <span class="field-label">Timestamp authority</span>
+                <p class="field-note authority-note">
+                  Who independently dates it. This is not the certificate you sign with, and it
+                  neither issues nor checks that certificate.
+                </p>
                 <div class="authority-list">
                   {#each AUTHORITIES as option}
                     <button

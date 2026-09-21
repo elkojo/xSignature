@@ -1124,11 +1124,10 @@
             {:else if verdict.route === 'text'}
               <div class="notice ok">
                 <strong>Laid out as a PDF.</strong>
-                Set here, on this device, in faces that came with the app — nothing was sent
-                anywhere. They are embedded in the PDF, so it reads the same wherever it is
-                opened, including the accents PDF's own built-in fonts cannot spell. It is a
-                plain setting of the document rather than typesetting — check it reads the way
-                you want before signing it.
+                Set on this device in faces that came with the app and are embedded in the file,
+                so it reads the same anywhere — accents included, which PDF's built-in fonts
+                cannot spell. It is plain setting rather than typesetting: check it reads the way
+                you want before signing.
               </div>
             {:else if verdict.route === 'reject'}
               <div class="notice bad"><strong>Cannot read this one.</strong> {verdict.reason}</div>
@@ -1411,9 +1410,9 @@
               {#if sealed}
                 <div class="notice bad">
                   <strong>This document cannot be signed again.</strong>
-                  Whoever signed it first certified it and allowed no later changes. Adding a
-                  signature would produce a file that readers reject, so it is not offered. They
-                  would have to sign it again themselves, permitting signatures.
+                  Whoever signed it first certified it and allowed no later changes, so adding a
+                  signature would produce a file readers reject. They would have to sign it again
+                  themselves, permitting signatures.
                 </div>
               {:else}
                 <div class="notice">
@@ -1432,10 +1431,10 @@
                       </span>
                     {/each}
                   </span>
-                  Your signature is added after theirs, leaving every byte they signed untouched,
-                  so their signatures keep holding. Nothing can be drawn on the page — doing that
-                  means rewriting the file, and what is already on it would not survive. So a
-                  certificate is the only thing that can be added here.
+                  Yours is appended, leaving every byte they signed untouched, so theirs keep
+                  holding. Nothing can be drawn on the page: that means rewriting the file, which
+                  their signatures would not survive. A certificate is the only thing that can be
+                  added here.
                 </div>
               {/if}
 
@@ -1446,9 +1445,8 @@
                       ? 'The signature already on this document does not hold.'
                       : 'Signatures already on this document do not hold.'}
                   </strong>
-                  It was changed after it was signed. Signing it now would put your name on a
-                  document that has already been tampered with, and yours would be the only one
-                  that verifies. Check where it came from before adding anything.
+                  It was changed after signing, so yours would be the only signature that
+                  verifies. Check where the file came from before adding your name to it.
                 </div>
               {/if}
             {/if}
@@ -1604,9 +1602,9 @@
                           ? 'past its expiry date'
                           : 'not valid yet'}.
                       </strong>
-                      It still makes a sound signature — the mathematics do not expire — but a
-                      reader will say so, and whether that matters is between you and whoever
-                      receives it.
+                      It still makes a sound signature; the mathematics do not expire. But a reader
+                      will say so, and whether that matters is between you and whoever receives
+                      it.
                     </div>
                   {/if}
 
@@ -1636,28 +1634,27 @@
                         one than an advanced signature alone; it is still not a qualified
                         electronic signature.
                       {:else}
-                        It makes no claim to being a qualified certificate under eIDAS.
+                        It makes no claim to being a qualified certificate under eIDAS, so what you
+                        are about to make is an advanced electronic signature.
                         {#if signerClaims.purpose === 'website'}
                           It declares itself a website certificate, which is not meant for signing
                           documents at all.
                         {/if}
-                        What you are about to make is an advanced electronic signature.
                       {/if}
                       {#if signerClaims.limit}
                         It declares a transaction limit of {signerClaims.limit.value.toLocaleString()}
                         {signerClaims.limit.currency}.
                       {/if}
-                      These are the authority's statements, read out of the certificate. Nothing
-                      here checks whether they are true.
+                      The authority's own statements, read out of the certificate. Nothing here
+                      checks they are true.
                     </div>
 
                     {#if signerClaims.keyUsage.stated && !signerClaims.keyUsage.digitalSignature && !signerClaims.keyUsage.nonRepudiation}
                       <div class="notice warn">
                         <strong>This certificate was not issued for signing.</strong>
                         Its key usage permits neither digital signature nor non-repudiation, so
-                        whatever it was meant for, it was not this. The signature would still be
-                        mathematically sound; a reader that enforces key usage will reject it
-                        anyway.
+                        whatever it was for, it was not this. The signature would still be sound
+                        arithmetic; a reader that enforces key usage will reject it anyway.
                       </div>
                     {/if}
                   {/if}
@@ -1673,9 +1670,9 @@
                   {:else if supplied.length === 0}
                     <div class="notice">
                       <strong>This file holds no issuer certificates.</strong>
-                      A signature should carry the certificates above it, so a recipient can trace
-                      it back. Without them, a reader that does not already hold
-                      <strong>{identity.issuer}</strong> shows your name and no way to check it.
+                      A signature should carry the certificates above it. Without them, a reader
+                      that does not already hold <strong>{identity.issuer}</strong> shows your name
+                      and no way to check it.
                       {#if signerClaims?.issuerUrl}
                         Your certificate says where that one is published:
                         <span class="outgoing-list">
@@ -1687,11 +1684,10 @@
                             </a>
                           </span>
                         </span>
-                        Fetch it from there and add it below, or re-export the key file with its
-                        full certification path, which carries it without any of this. Many
-                        readers follow that address themselves when they are online — but a
-                        signature that encloses its chain does not depend on them being online,
-                        and this app will not fetch it for you.
+                        Fetch it and add it below, or re-export the key file with its full
+                        certification path, which carries it already. Online readers often follow
+                        that address themselves — but a signature that encloses its chain does not
+                        depend on them being online, and this app will not fetch it for you.
                       {:else}
                         Add them below, or re-export the key file with its full certification path
                         — your authority publishes both.
@@ -1733,10 +1729,10 @@
                             </span>
                           {/each}
                         </span>
-                        Each was checked against the next, which is arithmetic and all that is
-                        checked. Whether {links[links.length - 1]?.issuer ??
-                          'the authority at the top'} deserves belief is the reader's PDF
-                        software's judgement, against a list this app does not have.
+                        Checked link by link, which is arithmetic and all that is checked.
+                        Whether {links[links.length - 1]?.issuer ?? 'the authority at the top'}
+                        deserves belief is the reader's PDF software's call, against a list this
+                        app does not ship.
                       </div>
                     {/if}
                   {/if}
@@ -1848,21 +1844,20 @@
                     {#if blockPreview && !blockPreview.fits}
                       <div class="notice warn">
                         <strong>More text here than the block can hold.</strong>
-                        It is as small as it can usefully be and still does not fit. Widen the
-                        block with the size slider or shorten the reason — otherwise what is drawn
-                        is cut off, and a signed document is the wrong place for a sentence that
-                        stops halfway.
+                        It is as small as it usefully goes and still does not fit. Widen the block
+                        or shorten the reason — otherwise the text is cut off, and a signed document
+                        is the wrong place for a sentence that stops halfway.
                       </div>
                     {/if}
 
                     {#if collisions.length > 0}
                       <div class="notice warn">
                         <strong>This lands on something already on the page.</strong>
-                        It would cover {collisions.map(nameOf).join(', ')}. The signature is still
-                        valid, but a validator reports overlapping annotations — it is how a
-                        document is made to show one thing while being signed as another, so the
-                        check cannot tell your placement from that. Move the block clear of the
-                        outlined areas, or leave it if you mean it.
+                        It would cover {collisions.map(nameOf).join(', ')}. The signature stays
+                        valid, but validators flag overlapping annotations — that is how a document
+                        is made to show one thing while being signed as another, and the check
+                        cannot tell your placement from it. Move clear of the outlined areas, or
+                        leave it if you mean it.
                       </div>
                     {/if}
 
@@ -1870,9 +1865,9 @@
                       <div class="notice warn">
                         <strong>Some characters cannot be drawn in the block.</strong>
                         The face covers Latin and its accents, not
-                        <code>{blockUnsupported.join(' ')}</code> — those come out as empty boxes.
-                        Change the text or turn the block off; the signature is unaffected and the
-                        words still go into it as they are.
+                        <code>{blockUnsupported.join(' ')}</code>, which come out as empty boxes.
+                        Change the text or turn the block off — the words still go into the
+                        signature as they are.
                       </div>
                     {/if}
                   {/if}
@@ -2089,46 +2084,54 @@
           <div class="notice">
             <strong>What this signature proves, and what it does not.</strong>
             It proves that whoever held the key in that file signed these exact bytes, and that
-            nothing has changed since. That is an advanced electronic signature, and it is a real
-            claim.
+            nothing has changed since. That is an advanced electronic signature, and a real claim.
             <br /><br />
-            It is <strong>not</strong> a qualified electronic signature, and nothing here can make
-            it one: a qualified signature needs the key to live in certified hardware that only you
-            can use, and a key file a browser can read is one that can be copied. This app also
-            does not check whose certificate that is — it signs with the key it is given. Whether
-            {identity.subject} is who they say they are is for the reader's PDF software to judge,
-            against a list of trusted authorities this app does not ship.
+            It is <strong>not</strong> a qualified one, and nothing here can make it one: that
+            needs the key to live in certified hardware only you can use, and a key file a browser
+            can read is one that can be copied. Nor does this app check whose certificate it is —
+            whether {identity.subject} is who they say they are is for the reader's PDF software to
+            judge, against a list of trusted authorities this app does not ship.
             <br /><br />
-            Nor does it carry <strong>revocation data</strong>. Whether {identity.issuer} has since
-            withdrawn that certificate is a question a reader answers by asking them over the
-            network, at the moment the file is opened — so a reader that is offline cannot settle
-            it, and after {identity.validTo.toISOString().slice(0, 10)}, when the certificate
-            expires, it may not be answerable at all. Acrobat calls a signature in that state "not
-            LTV enabled". Putting the answer inside the file would mean a second request to a
-            revocation service, and this app makes one or none. What does not decay is the
-            arithmetic: the signature still proves these bytes were signed by that key.
-            <br /><br />
-            The picture in the block proves nothing on its own, as below. What makes the document
-            worth something is the signature around it.
+            It carries no <strong>revocation data</strong> either. Whether {identity.issuer} has
+            since withdrawn that certificate
+            {#if signerClaims?.ocspUrl || signerClaims?.crlUrls.length}
+              is answered at these addresses, and this app calls none of them:
+              <span class="outgoing-list">
+                {#if signerClaims.ocspUrl}
+                  <span><strong>Asked at:</strong> <code>{signerClaims.ocspUrl}</code></span>
+                {/if}
+                {#each signerClaims.crlUrls as url}
+                  <span><strong>Listed at:</strong> <code>{url}</code></span>
+                {/each}
+              </span>
+              Read out of your certificate, shown rather than called: reaching them is a second
+              network request, and this app makes one or none. So a reader that is offline cannot
+              settle it, and after {identity.validTo.toISOString().slice(0, 10)}, when the
+              certificate expires, it may not be answerable at all — what Acrobat calls "not LTV
+              enabled". The arithmetic does not decay either way.
+            {:else}
+              is a question a reader puts to the authority over the network, and this app does not
+              ask it: that is a second request, and it makes one or none. So an offline reader
+              cannot settle it, and after {identity.validTo.toISOString().slice(0, 10)} it may not
+              be answerable at all — what Acrobat calls "not LTV enabled". The arithmetic does not
+              decay either way.
+            {/if}
           </div>
         {/if}
 
         <div class="notice warn">
           <strong>A signature image is not an electronic signature.</strong>
-          Putting a picture of your name on a document proves nothing about who put
-          it there — anyone who has the image can do the same to any file. Use this for
-          letterheads, forms and returning paperwork, not as evidence that you agreed to
-          something.
+          A picture of your name proves nothing about who put it there — anyone holding the image
+          can do the same to any file. Use it for letterheads, forms and returning paperwork, not
+          as evidence that you agreed to something.
           {#if !wantCertificate}
-            If you need a document to prove who signed it, that is what signing with a
-            certificate above does.
+            Signing with a certificate above is what proves who signed.
           {/if}
           <br /><br />
           <strong>A timestamp does not change that.</strong>
-          It establishes one fact and no others: that this file existed at a particular time.
-          It says nothing about who wrote it, who signed it, or whether anyone agreed to
-          anything — and a timestamped document with a picture of your name on it is still
-          a document with a picture of your name on it.
+          It establishes one fact and no others: that this file existed at a particular time. A
+          timestamped document with a picture of your name on it is still a document with a
+          picture of your name on it.
         </div>
       </div>
 

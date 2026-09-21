@@ -243,3 +243,97 @@ describe('where the issuing certificate can be fetched', () => {
     expect(claimsOf(certificateWith([rubbish])).issuerUrl).toBeNull();
   });
 });
+
+/** `CRLDistributionPoints ::= SEQUENCE OF DistributionPoint`, fullName arm only. */
+const crlDistributionPoints = (...urls: string[]) =>
+  extension(
+    '2.5.29.31',
+    new asn1js.Sequence({
+      value: urls.map(
+        (url) =>
+          new asn1js.Sequence({
+            value: [
+              new asn1js.Constructed({
+                idBlock: { tagClass: 3, tagNumber: 0 },
+                value: [
+                  new asn1js.Constructed({
+                    idBlock: { tagClass: 3, tagNumber: 0 },
+                    value: [
+                      new asn1js.Primitive({
+                        idBlock: { tagClass: 3, tagNumber: 6 },
+                        valueHex: new TextEncoder().encode(url).buffer as ArrayBuffer,
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+      ),
+    }),
+  );
+
+const fromHex = (hex: string) =>
+  Uint8Array.from(hex.replace(/\s/g, '').match(/../g)!.map((b) => Number.parseInt(b, 16)));
+
+const rawExtension = (id: string, hex: string) =>
+  new Extension({ extnID: id, critical: false, extnValue: fromHex(hex).slice().buffer as ArrayBuffer });
+
+describe('where revocation could be checked, and is not', () => {
+  it('reads the OCSP responder out of the same extension as caIssuers', () => {
+    const claims = claimsOf(
+      certificateWith([
+        authorityInfoAccess(
+          [CA_ISSUERS, 'http://crt.example.cz/ca.crt'],
+          [OCSP, 'http://ocsp.example.cz/'],
+        ),
+      ]),
+    );
+    expect(claims.issuerUrl).toBe('http://crt.example.cz/ca.crt');
+    expect(claims.ocspUrl).toBe('http://ocsp.example.cz/');
+  });
+
+  it('reads every CRL mirror, not just the first', () => {
+    const claims = claimsOf(
+      certificateWith([
+        crlDistributionPoints('http://crl.example.cz/a.crl', 'http://crl2.example.cz/a.crl'),
+      ]),
+    );
+    expect(claims.crlUrls).toEqual(['http://crl.example.cz/a.crl', 'http://crl2.example.cz/a.crl']);
+  });
+
+  it('reads them out of what a real authority emits', () => {
+    // The CRL Distribution Points extension of a PostSignum Qualified CA 4
+    // certificate, byte for byte: three mirrors, each its own distribution
+    // point, each nested two context tags deep.
+    const claims = claimsOf(
+      certificateWith([
+        rawExtension(
+          '2.5.29.31',
+          '3081a63035a033a031862f687474703a2f2f63726c2e706f73747369676e756d2e637a2f63726c2f' +
+            '70737175616c69666965646361342e63726c3036a034a0328630687474703a2f2f63726c322e706f' +
+            '73747369676e756d2e637a2f63726c2f70737175616c69666965646361342e63726c3035a033a031' +
+            '862f687474703a2f2f63726c2e706f73747369676e756d2e65752f63726c2f70737175616c696669' +
+            '65646361342e63726c',
+        ),
+      ]),
+    );
+
+    expect(claims.crlUrls).toEqual([
+      'http://crl.postsignum.cz/crl/psqualifiedca4.crl',
+      'http://crl2.postsignum.cz/crl/psqualifiedca4.crl',
+      'http://crl.postsignum.eu/crl/psqualifiedca4.crl',
+    ]);
+  });
+
+  it('reports nothing when the certificate publishes neither', () => {
+    const claims = claimsOf(certificateWith([]));
+    expect(claims.ocspUrl).toBeNull();
+    expect(claims.crlUrls).toEqual([]);
+  });
+
+  it('holds the same line on schemes it will not show', () => {
+    const claims = claimsOf(certificateWith([crlDistributionPoints('ldap://crl.example.cz/cn')]));
+    expect(claims.crlUrls).toEqual([]);
+  });
+});

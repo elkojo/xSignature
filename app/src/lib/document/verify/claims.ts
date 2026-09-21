@@ -40,8 +40,11 @@ const QC_TYPES: Record<string, Purpose> = {
 const QC_STATEMENTS_EXTENSION = '1.3.6.1.5.5.7.1.3';
 const KEY_USAGE_EXTENSION = '2.5.29.15';
 const AUTHORITY_INFO_ACCESS_EXTENSION = '1.3.6.1.5.5.7.1.1';
+const CRL_DISTRIBUTION_POINTS_EXTENSION = '2.5.29.31';
 /** `id-ad-caIssuers`: where the certificate above this one can be fetched. */
 const CA_ISSUERS = '1.3.6.1.5.5.7.48.2';
+/** `id-ad-ocsp`: where this certificate's revocation status can be asked. */
+const OCSP = '1.3.6.1.5.5.7.48.1';
 
 /** What the certificate is for, when it says. */
 export type Purpose =
@@ -81,6 +84,19 @@ export interface CertificateClaims {
    * that a person can go and get the file, not so that the app can.
    */
   readonly issuerUrl: string | null;
+  /**
+   * Where this certificate's revocation status could be asked, and read from.
+   *
+   * The OCSP responder and the certificate revocation lists the authority
+   * publishes. **Neither is ever contacted.** They are here to be named: the
+   * app tells a reader that its signature carries no revocation data and that
+   * checking it means a request, and naming the request it is declining to make
+   * is more use than describing one in the abstract.
+   *
+   * A certificate usually offers one responder and several list mirrors.
+   */
+  readonly ocspUrl: string | null;
+  readonly crlUrls: readonly string[];
   /** Whether the key may be used to sign at all, per the key usage extension. */
   readonly keyUsage: {
     readonly digitalSignature: boolean;
@@ -101,7 +117,9 @@ export function claimsOf(certificate: Certificate): CertificateClaims {
     purpose: purposeFrom(statements.get(QC_TYPE)),
     retentionYears: integerFrom(statements.get(QC_RETENTION)),
     limit: limitFrom(statements.get(QC_LIMIT_VALUE)),
-    issuerUrl: caIssuersUrlOf(certificate),
+    issuerUrl: accessUrlOf(certificate, CA_ISSUERS),
+    ocspUrl: accessUrlOf(certificate, OCSP),
+    crlUrls: crlUrlsOf(certificate),
     keyUsage: keyUsageOf(certificate),
   };
 }
@@ -188,21 +206,17 @@ function limitFrom(info: asn1js.AsnType | undefined): CertificateClaims['limit']
  * nothing about signing" are different, and only one is worth warning about.
  */
 /**
- * The `caIssuers` address from Authority Information Access, if there is one.
+ * A URI from Authority Information Access, for one access method.
  *
  * `AuthorityInfoAccessSyntax ::= SEQUENCE OF AccessDescription`, and an
  * `AccessDescription ::= SEQUENCE { accessMethod OID, accessLocation GeneralName }`.
- * Only `caIssuers` is wanted; the same extension usually carries an OCSP
- * responder beside it, which is a revocation service this app deliberately does
- * not reach for.
- *
- * The location is taken only when it is a `uniformResourceIdentifier` — context
- * tag 6 of GeneralName — because a directory name or an email address is not
- * something a reader can be told to open. Parsed by hand, like the QC
- * statements above, so that nothing here depends on how a library chooses to
- * model an extension it may not have parsed at all.
+ * One extension usually carries two: where the issuing certificate is
+ * published, and where this certificate's revocation may be asked about. They
+ * are read the same way and used for opposite purposes — the first is an
+ * address a reader is invited to open, the second is one this app names in
+ * order to say it is not calling it.
  */
-function caIssuersUrlOf(certificate: Certificate): string | null {
+function accessUrlOf(certificate: Certificate, method: string): string | null {
   const extension = certificate.extensions?.find(
     (e) => e.extnID === AUTHORITY_INFO_ACCESS_EXTENSION,
   );
@@ -216,27 +230,86 @@ function caIssuersUrlOf(certificate: Certificate): string | null {
 
     for (const description of descriptions) {
       const parts = (description as asn1js.Sequence).valueBlock?.value ?? [];
-      const method = parts[0];
-      if (!(method instanceof asn1js.ObjectIdentifier)) continue;
-      if (method.valueBlock.toString() !== CA_ISSUERS) continue;
+      const id = parts[0];
+      if (!(id instanceof asn1js.ObjectIdentifier)) continue;
+      if (id.valueBlock.toString() !== method) continue;
 
-      // GeneralName is a CHOICE, so the tag says which arm: context tag 6 is
-      // the URI, and it is an IA5String, so it arrives primitive.
-      const location = parts[1];
-      if (!(location instanceof asn1js.Primitive)) continue;
-      if (location.idBlock.tagClass !== 3 || location.idBlock.tagNumber !== 6) continue;
-
-      const url = new TextDecoder().decode(location.valueBlock.valueHexView);
-      // Only addresses a reader can actually open, and only ones this app would
-      // be willing to show: a `javascript:` or `data:` URL in a certificate is
-      // not a place to fetch a certificate from.
-      if (/^https?:\/\//i.test(url)) return url;
+      const url = uriFrom(parts[1]);
+      if (url) return url;
     }
   } catch {
     // A malformed extension is not a claim. Reporting nothing is right.
   }
 
   return null;
+}
+
+/**
+ * Every CRL address the certificate publishes.
+ *
+ * `CRLDistributionPoints ::= SEQUENCE OF DistributionPoint`, and the part
+ * wanted is nested three deep: a `DistributionPoint` holds an optional
+ * `distributionPoint` at context tag 0, which is a `DistributionPointName`
+ * whose `fullName` arm is context tag 0 again, holding `GeneralNames`. Only
+ * that path is followed — a name relative to the CRL issuer is not an address.
+ *
+ * Several, because authorities publish mirrors, and a list of one mirror would
+ * misrepresent a certificate that offers three.
+ */
+function crlUrlsOf(certificate: Certificate): string[] {
+  const extension = certificate.extensions?.find(
+    (e) => e.extnID === CRL_DISTRIBUTION_POINTS_EXTENSION,
+  );
+  if (!extension) return [];
+
+  const found: string[] = [];
+  try {
+    const parsed = asn1js.fromBER(
+      extension.extnValue.valueBlock.valueHexView.slice().buffer as ArrayBuffer,
+    );
+    const points = (parsed.result as asn1js.Sequence).valueBlock.value ?? [];
+
+    for (const point of points) {
+      const name = childAt(point, 0);
+      const fullName = name && childAt(name, 0);
+      if (!fullName) continue;
+
+      for (const general of (fullName as asn1js.Constructed).valueBlock?.value ?? []) {
+        const url = uriFrom(general);
+        if (url && !found.includes(url)) found.push(url);
+      }
+    }
+  } catch {
+    // As above: unreadable is not a claim.
+  }
+
+  return found;
+}
+
+/** The child of a constructed value carrying a given context tag. */
+function childAt(value: unknown, tagNumber: number): asn1js.AsnType | undefined {
+  const children = (value as asn1js.Constructed).valueBlock?.value ?? [];
+  return children.find(
+    (child) => child.idBlock.tagClass === 3 && child.idBlock.tagNumber === tagNumber,
+  );
+}
+
+/**
+ * A `GeneralName` as an address, when it is one this app would show.
+ *
+ * GeneralName is a CHOICE, so the tag says which arm: context tag 6 is the URI,
+ * and it is an IA5String, so it arrives primitive. A directory name or an email
+ * address is not somewhere a reader can be sent. Only http and https, because
+ * this value comes out of a file and ends up rendered as a link — a
+ * `javascript:` or `data:` URL in a certificate is not a place to fetch a
+ * certificate from.
+ */
+function uriFrom(value: unknown): string | null {
+  if (!(value instanceof asn1js.Primitive)) return null;
+  if (value.idBlock.tagClass !== 3 || value.idBlock.tagNumber !== 6) return null;
+
+  const url = new TextDecoder().decode(value.valueBlock.valueHexView);
+  return /^https?:\/\//i.test(url) ? url : null;
 }
 
 function keyUsageOf(certificate: Certificate): CertificateClaims['keyUsage'] {

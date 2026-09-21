@@ -523,6 +523,23 @@
               Whether <em>{result.signedBy ?? 'that signer'}</em> is who they say they are. That
               takes two things this app does not have: a list of trusted authorities, which it
               chooses not to ship, and a revocation check, which needs a network it does not use.
+              {#if result.claims?.ocspUrl || result.claims?.crlUrls.length}
+                <!--
+                  Named, not called. The same fact the signing screen states
+                  about a signature being made, said here about one being read —
+                  a refusal is easier to weigh against the addresses it applies
+                  to than in the abstract.
+                -->
+                The certificate says where that check would go, and this app calls none of them:
+                <span class="outgoing-list">
+                  {#if result.claims.ocspUrl}
+                    <span><strong>Asked at:</strong> <code>{result.claims.ocspUrl}</code></span>
+                  {/if}
+                  {#each result.claims.crlUrls as url}
+                    <span><strong>Listed at:</strong> <code>{url}</code></span>
+                  {/each}
+                </span>
+              {/if}
               Open the file in a PDF reader for that judgement. The name above is read out of the
               token, not vouched for.
               {#if !result.isTimestamp}
